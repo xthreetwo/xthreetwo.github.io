@@ -60,16 +60,29 @@ Also enable GitHub Pages: **Settings → Pages → Source: GitHub Actions**.
 4. The background is transparent by default — no chroma key needed.
 5. Check "Refresh browser when scene becomes active" if you want a clean reload on scene switch.
 
+## Display time
+
+Each item can use one of three preset durations (on screen after the slide-in animation):
+
+| Preset | Duration |
+|--------|----------|
+| Default | 5 seconds |
+| Extended | 10 seconds |
+| Super | 15 seconds |
+
 ## Highlight Syntax
 
-Use tags inside ticker item text for styled inline highlights:
+Use lightweight markdown in ticker item text:
 
 | Syntax | Effect |
 |--------|--------|
-| `{accent}BREAKING{/accent}` | Gold uppercase accent (ESPN-style) |
-| `{bold}Important{/bold}` | Bold text |
+| `**!livery**` | Orange accent highlight |
+| `*important*` | Bold text |
+| `'emphasis'` | Italic text |
 
-Example: `{accent}BREAKING{/accent} Stream starts in 10 minutes — don't miss it!`
+Example: `**!livery** in chat for the 'newest' i20 Livery`
+
+Legacy `{accent}...{/accent}`, `{bold}...{/bold}`, and `{italic}...{/italic}` tags still work on older items.
 
 ## Customizing the Look
 

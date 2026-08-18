@@ -58,6 +58,6 @@ ALTER PUBLICATION supabase_realtime ADD TABLE ticker_items;
 
 -- Sample data (optional — remove if not wanted)
 INSERT INTO ticker_items (text, sort_order, active) VALUES
-  ('{accent}BREAKING{/accent} Welcome to the stream!', 0, true),
+  ('**BREAKING** Welcome to the stream!', 0, true),
   ('Follow for more content — new videos every week', 1, true),
-  ('{bold}Tip:{/bold} Use the admin panel to manage ticker items in real time', 2, true);
+  ('*Tip:* Use the admin panel to manage ticker items in real time', 2, true);

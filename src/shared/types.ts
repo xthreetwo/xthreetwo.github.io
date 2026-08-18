@@ -10,6 +10,36 @@ export interface TickerItem {
 
 export const DEFAULT_HOLD_SECONDS = 5;
 
+export const HOLD_PRESETS = {
+  default: 5,
+  extended: 10,
+  super: 15,
+} as const;
+
+export type HoldPreset = keyof typeof HOLD_PRESETS;
+
+export function presetFromSeconds(seconds?: number): HoldPreset {
+  if (seconds === HOLD_PRESETS.extended) return "extended";
+  if (seconds === HOLD_PRESETS.super) return "super";
+  return "default";
+}
+
+export function secondsFromPreset(preset: string): number {
+  return HOLD_PRESETS[preset as HoldPreset] ?? DEFAULT_HOLD_SECONDS;
+}
+
+export function formatHoldLabel(seconds?: number): string {
+  const preset = presetFromSeconds(seconds);
+  switch (preset) {
+    case "extended":
+      return "Extended (10s)";
+    case "super":
+      return "Super (15s)";
+    default:
+      return "Default (5s)";
+  }
+}
+
 export function getItemHoldMs(item: TickerItem): number {
   const seconds =
     item.hold_seconds != null && item.hold_seconds > 0
@@ -21,7 +51,7 @@ export function getItemHoldMs(item: TickerItem): number {
 export type TickerItemInsert = Pick<TickerItem, "text" | "sort_order" | "active" | "hold_seconds">;
 export type TickerItemUpdate = Partial<TickerItemInsert>;
 
-export type HighlightTag = "accent" | "bold";
+export type HighlightTag = "accent" | "bold" | "italic";
 
 export interface ParsedSegment {
   type: "text" | "highlight";

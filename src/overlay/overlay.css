@@ -166,3 +166,7 @@ body {
 .hl--bold {
   font-weight: 700;
 }
+
+.hl--italic {
+  font-style: italic;
+}
