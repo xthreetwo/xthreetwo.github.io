@@ -7,6 +7,7 @@
   --ticker-transition: 1s;
   --ticker-hold: 5s;
   --ticker-height: 65px;
+  --ticker-max-width: 1920px;
   --ticker-font: "IBM Plex Mono", ui-monospace, monospace;
   --ticker-brand-font: "Instrument Serif", Georgia, serif;
   --ticker-item-size: 30px;
@@ -42,6 +43,17 @@ body {
   left: 0;
   right: 0;
   height: var(--ticker-height);
+  background: transparent;
+}
+
+.ticker__container {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  transform: translateX(-50%);
+  width: var(--ticker-max-width);
+  max-width: 100%;
+  height: 100%;
   display: flex;
   align-items: stretch;
   background: var(--ticker-bg);
