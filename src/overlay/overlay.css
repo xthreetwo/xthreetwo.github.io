@@ -42,21 +42,24 @@ body {
   bottom: 0;
   left: 0;
   right: 0;
+  width: 100%;
   height: var(--ticker-height);
-  background: transparent;
+  display: grid;
+  grid-template-columns: 1fr min(var(--ticker-max-width), 100%) 1fr;
 }
 
-.ticker__container {
-  position: absolute;
-  left: 50%;
-  bottom: 0;
-  transform: translateX(-50%);
-  width: var(--ticker-max-width);
-  max-width: 100%;
-  height: 100%;
+.ticker__edge--left {
+  background: var(--ticker-brand-bg);
+}
+
+.ticker__edge--right {
+  background: var(--ticker-bg);
+}
+
+.ticker__center {
   display: flex;
   align-items: stretch;
-  background: var(--ticker-bg);
+  min-width: 0;
   overflow: hidden;
 }
 
