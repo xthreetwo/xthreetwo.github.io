@@ -1,0 +1,104 @@
+# Twitch News Ticker Overlay
+
+An ESPN-style scrolling news ticker for Twitch streams, designed as a browser source in OBS or Streamlabs. Manage ticker items in real time through a password-protected admin panel backed by Supabase.
+
+## URLs
+
+| Page | URL | Purpose |
+|------|-----|---------|
+| Overlay | `https://xthreetwo.github.io/overlay.html` | Add as OBS Browser Source |
+| Admin | `https://xthreetwo.github.io/admin.html` | Manage ticker items |
+
+## Quick Start
+
+### 1. Create a Supabase project
+
+1. Go to [supabase.com](https://supabase.com) and create a free project.
+2. Open the **SQL Editor** and run the migration in [`supabase/migrations/001_ticker_items.sql`](supabase/migrations/001_ticker_items.sql).
+3. Go to **Authentication → Users** and create your admin account (email + password).
+4. Copy your project URL and anon key from **Settings → API**.
+
+### 2. Configure environment
+
+```bash
+cp .env.example .env
+```
+
+Fill in your Supabase credentials:
+
+```
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_ANON_KEY=your-anon-key
+```
+
+### 3. Local development
+
+```bash
+npm install
+npm run dev
+```
+
+- Overlay: http://localhost:5173/overlay.html
+- Admin: http://localhost:5173/admin.html
+
+### 4. Deploy to GitHub Pages
+
+Add these repository secrets (**Settings → Secrets and variables → Actions**):
+
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_ANON_KEY`
+
+Push to `main` — GitHub Actions builds and deploys automatically.
+
+Also enable GitHub Pages: **Settings → Pages → Source: GitHub Actions**.
+
+## OBS Setup
+
+1. In OBS, add a **Browser Source**.
+2. Set URL to `https://xthreetwo.github.io/overlay.html`.
+3. Set Width to `1920` and Height to `120` (or `1080` for full canvas with ticker at bottom).
+4. The background is transparent by default — no chroma key needed.
+5. Check "Refresh browser when scene becomes active" if you want a clean reload on scene switch.
+
+## Highlight Syntax
+
+Use tags inside ticker item text for styled inline highlights:
+
+| Syntax | Effect |
+|--------|--------|
+| `{accent}BREAKING{/accent}` | Gold uppercase accent (ESPN-style) |
+| `{bold}Important{/bold}` | Bold text |
+
+Example: `{accent}BREAKING{/accent} Stream starts in 10 minutes — don't miss it!`
+
+## Customizing the Look
+
+All visual tokens are CSS variables in [`src/overlay/overlay.css`](src/overlay/overlay.css):
+
+```css
+:root {
+  --ticker-bg: #1a1a2e;
+  --ticker-accent: #e63946;
+  --ticker-text: #ffffff;
+  --ticker-highlight: #ffd700;
+  --ticker-speed: 40s;
+  --ticker-height: 48px;
+}
+```
+
+Change these values to match your stream branding. No code changes required.
+
+## Project Structure
+
+```
+overlay.html          OBS browser source entry
+admin.html            CMS admin entry
+src/overlay/          Ticker rendering + realtime
+src/admin/            Auth + CRUD panel
+src/lib/              Supabase client + highlight parser
+supabase/migrations/  Database schema + RLS policies
+```
+
+## License
+
+Private — for personal streaming use.

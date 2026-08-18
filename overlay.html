@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ticker Overlay</title>
+  </head>
+  <body>
+    <div id="app">
+      <div class="ticker" role="marquee" aria-live="polite">
+        <div class="ticker__brand">
+          <span class="ticker__brand-label">LIVE</span>
+        </div>
+        <div class="ticker__viewport">
+          <div class="ticker__track" id="ticker-track">
+            <div class="ticker__content" id="ticker-content"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/src/overlay/main.ts"></script>
+  </body>
+</html>

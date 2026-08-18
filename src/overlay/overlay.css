@@ -1,0 +1,148 @@
+:root {
+  --ticker-bg: #1a1a2e;
+  --ticker-accent: #e63946;
+  --ticker-text: #ffffff;
+  --ticker-highlight: #ffd700;
+  --ticker-speed: 40s;
+  --ticker-height: 48px;
+  --ticker-brand-width: 100px;
+  --ticker-font: "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  font-family: var(--ticker-font);
+}
+
+#app {
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
+.ticker {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: var(--ticker-height);
+  display: flex;
+  background: var(--ticker-bg);
+  overflow: hidden;
+  box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.4);
+}
+
+.ticker__brand {
+  flex-shrink: 0;
+  width: var(--ticker-brand-width);
+  background: var(--ticker-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  z-index: 2;
+}
+
+.ticker__brand-label {
+  color: var(--ticker-text);
+  font-weight: 800;
+  font-size: 1rem;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+
+.ticker__viewport {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+  mask-image: linear-gradient(
+    to right,
+    transparent 0%,
+    black 3%,
+    black 97%,
+    transparent 100%
+  );
+}
+
+.ticker__track {
+  display: flex;
+  width: max-content;
+  height: 100%;
+  animation: marquee var(--ticker-speed) linear infinite;
+}
+
+.ticker__track:hover {
+  animation-play-state: paused;
+}
+
+.ticker__content {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  white-space: nowrap;
+}
+
+.ticker__item {
+  display: inline-flex;
+  align-items: center;
+  color: var(--ticker-text);
+  font-size: 1.125rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding-right: 4rem;
+}
+
+.ticker__item::before {
+  content: "●";
+  color: var(--ticker-accent);
+  margin-right: 1rem;
+  font-size: 0.6rem;
+  vertical-align: middle;
+}
+
+.ticker__item:first-child::before {
+  content: none;
+  margin-right: 0;
+}
+
+.ticker__empty {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  padding: 0 2rem;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 0.9rem;
+  font-style: italic;
+}
+
+.hl--accent {
+  color: var(--ticker-highlight);
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.hl--bold {
+  font-weight: 800;
+}
+
+@keyframes marquee {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
