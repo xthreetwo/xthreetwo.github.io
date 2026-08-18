@@ -93,6 +93,7 @@ body {
 input[type="text"],
 input[type="email"],
 input[type="password"],
+input[type="number"],
 textarea {
   width: 100%;
   padding: 0.65rem 0.85rem;
@@ -310,6 +311,26 @@ textarea {
 .item-card__edit {
   width: 100%;
   margin-top: 0.5rem;
+}
+
+.item-card__edit-fields {
+  width: 100%;
+}
+
+.item-card__hold-label {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--admin-muted);
+  margin-top: 0.75rem;
+  margin-bottom: 0.35rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.item-card__hold {
+  width: 100%;
+  max-width: 8rem;
 }
 
 .empty-state {

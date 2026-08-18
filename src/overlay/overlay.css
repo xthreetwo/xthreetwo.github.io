@@ -39,7 +39,7 @@ body {
 
 .ticker {
   position: fixed;
-  bottom: 0;
+  top: 0;
   left: 0;
   right: 0;
   width: 100%;
@@ -91,62 +91,12 @@ body {
   white-space: nowrap;
 }
 
-/* Eyes graphic from Figma "scaleable eyes" */
+/* SuhhhCuh eyes graphic */
 .ticker__eyes {
-  position: relative;
-  width: 118px;
-  height: 40px;
   flex-shrink: 0;
-}
-
-.ticker__eyes-lines {
-  position: absolute;
-  left: 54px;
-  top: 2px;
-  width: 64px;
-  height: 36px;
-  background: repeating-linear-gradient(
-    to bottom,
-    var(--ticker-brand-text) 0,
-    var(--ticker-brand-text) 0.9px,
-    transparent 0.9px,
-    transparent 2.2px
-  );
-  pointer-events: none;
-}
-
-.ticker__eye-white {
-  position: absolute;
-  top: 0;
-  display: block;
-  width: 41px;
   height: 41px;
-  transform: skewX(-9deg) scaleY(0.99);
-  transform-origin: center;
-}
-
-.ticker__eye-white--left {
-  left: 0;
-}
-
-.ticker__eye-white--right {
-  left: 26px;
-}
-
-.ticker__eye-pupil {
-  position: absolute;
-  top: 4px;
+  width: auto;
   display: block;
-  width: 19px;
-  height: 33px;
-}
-
-.ticker__eye-pupil--left {
-  left: 4px;
-}
-
-.ticker__eye-pupil--right {
-  left: 30px;
 }
 
 /* Ticker item stage — vertical ease in/out */
@@ -177,7 +127,7 @@ body {
   letter-spacing: -0.04em;
   line-height: var(--ticker-height);
   white-space: nowrap;
-  transform: translateY(100%);
+  transform: translateY(-100%);
   opacity: 0;
   transition:
     transform var(--ticker-transition) ease,
@@ -194,7 +144,7 @@ body {
 }
 
 .ticker__item--exit {
-  transform: translateY(100%);
+  transform: translateY(-100%);
   opacity: 0;
 }
 

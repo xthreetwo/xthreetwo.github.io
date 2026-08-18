@@ -1,7 +1,7 @@
 import "./overlay.css";
 import { supabase } from "../lib/supabase";
 import { renderHighlights } from "../lib/parseHighlights";
-import type { TickerItem } from "../shared/types";
+import { getItemHoldMs, type TickerItem } from "../shared/types";
 
 const stageEl = document.getElementById("ticker-stage");
 
@@ -10,7 +10,6 @@ if (!stageEl) {
 }
 
 const ENTER_MS = 1000;
-const HOLD_MS = 5000;
 const EXIT_MS = 1000;
 
 let items: TickerItem[] = [];
@@ -47,12 +46,12 @@ async function playItem(item: TickerItem, runId: number): Promise<void> {
   const itemEl = stageEl!.querySelector(".ticker__item");
   if (!itemEl) return;
 
-  // Start below the bar, then ease into view
+  // Start above the bar, then ease into view
   await sleep(50);
   if (runId !== cycleId) return;
 
   itemEl.classList.add("ticker__item--visible");
-  await sleep(ENTER_MS + HOLD_MS);
+  await sleep(ENTER_MS + getItemHoldMs(item));
   if (runId !== cycleId) return;
 
   itemEl.classList.remove("ticker__item--visible");

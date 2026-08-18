@@ -2,6 +2,7 @@ import "./admin.css";
 import { supabase } from "../lib/supabase";
 import { renderHighlights } from "../lib/parseHighlights";
 import type { TickerItem } from "../shared/types";
+import { DEFAULT_HOLD_SECONDS } from "../shared/types";
 import type { Session } from "@supabase/supabase-js";
 
 const app = document.getElementById("app")!;
@@ -88,13 +89,14 @@ async function loadItems(): Promise<void> {
   items = data ?? [];
 }
 
-async function addItem(text: string): Promise<void> {
+async function addItem(text: string, hold_seconds: number): Promise<void> {
   const maxOrder = items.length > 0 ? Math.max(...items.map((i) => i.sort_order)) + 1 : 0;
 
   const { error } = await supabase.from("ticker_items").insert({
     text,
     sort_order: maxOrder,
     active: true,
+    hold_seconds,
   });
 
   if (error) {
@@ -184,6 +186,11 @@ function renderDashboard(): void {
           </p>
           <div class="preview-box" id="add-preview"></div>
         </div>
+        <div class="form-group">
+          <label for="new-hold">Display time (seconds)</label>
+          <input type="number" id="new-hold" min="1" max="300" placeholder="${DEFAULT_HOLD_SECONDS}" />
+          <p class="syntax-help">Default is ${DEFAULT_HOLD_SECONDS} seconds. Use a higher value for extended display.</p>
+        </div>
         <button type="submit" class="btn btn--primary">Add Item</button>
       </form>
     </section>
@@ -213,8 +220,11 @@ function renderDashboard(): void {
     e.preventDefault();
     const text = newTextEl.value.trim();
     if (!text) return;
-    await addItem(text);
+    const holdInput = document.getElementById("new-hold") as HTMLInputElement;
+    const hold_seconds = parseHoldSeconds(holdInput.value);
+    await addItem(text, hold_seconds);
     newTextEl.value = "";
+    holdInput.value = "";
     addPreviewEl.innerHTML = '<span style="color:var(--admin-muted)">Preview appears here...</span>';
   });
 
@@ -230,7 +240,7 @@ function renderItemCard(item: TickerItem): string {
       </div>
       <div class="item-card__body">
         <div class="item-card__text" id="text-${item.id}">${renderHighlights(item.text)}</div>
-        <div class="item-card__meta">Order: ${item.sort_order} · ${item.active ? "Active" : "Inactive"}</div>
+        <div class="item-card__meta">Order: ${item.sort_order} · Display: ${item.hold_seconds ?? DEFAULT_HOLD_SECONDS}s · ${item.active ? "Active" : "Inactive"}</div>
       </div>
       <div class="item-card__actions">
         <label class="toggle">
@@ -276,19 +286,44 @@ function startEdit(id: string): void {
   const textarea = document.createElement("textarea");
   textarea.className = "item-card__edit";
   textarea.value = item.text;
-  textEl.replaceWith(textarea);
+
+  const holdLabel = document.createElement("label");
+  holdLabel.className = "item-card__hold-label";
+  holdLabel.textContent = "Display time (seconds)";
+
+  const holdInput = document.createElement("input");
+  holdInput.type = "number";
+  holdInput.className = "item-card__hold";
+  holdInput.min = "1";
+  holdInput.max = "300";
+  holdInput.value = String(item.hold_seconds ?? DEFAULT_HOLD_SECONDS);
+
+  const editFields = document.createElement("div");
+  editFields.className = "item-card__edit-fields";
+  editFields.append(textarea, holdLabel, holdInput);
+
+  textEl.replaceWith(editFields);
   textarea.focus();
 
   card.querySelector(".save-edit")!.addEventListener("click", async () => {
     const newText = textarea.value.trim();
+    const hold_seconds = parseHoldSeconds(holdInput.value);
     if (newText) {
-      await updateItem(id, { text: newText });
+      await updateItem(id, { text: newText, hold_seconds });
     } else {
       renderDashboard();
     }
   });
 
   card.querySelector(".cancel-edit")!.addEventListener("click", () => renderDashboard());
+}
+
+function parseHoldSeconds(value: string): number {
+  const parsed = parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    return DEFAULT_HOLD_SECONDS;
+  }
+  return Math.min(parsed, 300);
 }
 
 function escapeHtml(text: string): string {

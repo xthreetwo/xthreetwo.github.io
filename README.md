@@ -56,7 +56,7 @@ Also enable GitHub Pages: **Settings → Pages → Source: GitHub Actions**.
 
 1. In OBS, add a **Browser Source**.
 2. Set URL to `https://xthreetwo.github.io/overlay.html`.
-3. Set Width to `1920` and Height to `120` (or `1080` for full canvas with ticker at bottom).
+3. Set Width to `1920` and Height to `65` (ticker sits at the top of the canvas).
 4. The background is transparent by default — no chroma key needed.
 5. Check "Refresh browser when scene becomes active" if you want a clean reload on scene switch.
 
