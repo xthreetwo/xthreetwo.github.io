@@ -3,14 +3,22 @@ import { supabase } from "../lib/supabase";
 import { renderHighlights } from "../lib/parseHighlights";
 import type { TickerItem } from "../shared/types";
 
-const contentEl = document.getElementById("ticker-content");
-const trackEl = document.getElementById("ticker-track");
+const stageEl = document.getElementById("ticker-stage");
 
-if (!contentEl || !trackEl) {
-  throw new Error("Ticker DOM elements not found");
+if (!stageEl) {
+  throw new Error("Ticker stage element not found");
 }
 
+const ENTER_MS = 1000;
+const HOLD_MS = 5000;
+const EXIT_MS = 1000;
+
 let items: TickerItem[] = [];
+let cycleId = 0;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 async function fetchItems(): Promise<TickerItem[]> {
   const { data, error } = await supabase
@@ -27,40 +35,65 @@ async function fetchItems(): Promise<TickerItem[]> {
   return data ?? [];
 }
 
-function buildItemHtml(item: TickerItem): string {
-  return `<span class="ticker__item">${renderHighlights(item.text)}</span>`;
+function showEmptyState(): void {
+  stageEl!.innerHTML =
+    '<span class="ticker__empty">No ticker items — add some in the admin panel</span>';
 }
 
-function renderTicker(): void {
+async function playItem(item: TickerItem, runId: number): Promise<void> {
+  if (runId !== cycleId) return;
+
+  stageEl!.innerHTML = `<div class="ticker__item">${renderHighlights(item.text)}</div>`;
+  const itemEl = stageEl!.querySelector(".ticker__item");
+  if (!itemEl) return;
+
+  // Start below the bar, then ease into view
+  await sleep(50);
+  if (runId !== cycleId) return;
+
+  itemEl.classList.add("ticker__item--visible");
+  await sleep(ENTER_MS + HOLD_MS);
+  if (runId !== cycleId) return;
+
+  itemEl.classList.remove("ticker__item--visible");
+  itemEl.classList.add("ticker__item--exit");
+  await sleep(EXIT_MS);
+}
+
+async function runCycle(runId: number): Promise<void> {
   if (items.length === 0) {
-    contentEl!.innerHTML = '<span class="ticker__empty">No ticker items — add some in the admin panel</span>';
-    trackEl!.style.animation = "none";
+    showEmptyState();
     return;
   }
 
-  const html = items.map(buildItemHtml).join("");
-  // Duplicate content for seamless loop
-  contentEl!.innerHTML = html + html;
+  while (runId === cycleId) {
+    for (const item of items) {
+      if (runId !== cycleId) return;
+      await playItem(item, runId);
+    }
+  }
+}
 
-  // Reset animation to recalculate duration based on content width
-  trackEl!.style.animation = "none";
-  void trackEl!.offsetWidth;
-  trackEl!.style.animation = "";
+function startCycle(): void {
+  cycleId += 1;
+  const runId = cycleId;
+  runCycle(runId);
+}
+
+async function refreshItems(): Promise<void> {
+  items = await fetchItems();
+  startCycle();
 }
 
 async function init(): Promise<void> {
-  items = await fetchItems();
-  renderTicker();
+  await refreshItems();
 
   supabase
     .channel("ticker_items_changes")
     .on(
       "postgres_changes",
       { event: "*", schema: "public", table: "ticker_items" },
-      async () => {
-        items = await fetchItems();
-        renderTicker();
-      }
+      () => refreshItems()
     )
     .subscribe();
 }

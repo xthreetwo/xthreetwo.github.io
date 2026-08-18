@@ -56,11 +56,20 @@ function createSegment(content: string, tagStack: HighlightTag[]): ParsedSegment
 
 export function renderHighlights(input: string): string {
   return parseHighlights(input)
-    .map((segment) => {
+    .map((segment, index, segments) => {
+      const content = escapeHtml(segment.content);
+
       if (segment.type === "highlight" && segment.tag) {
-        return `<span class="hl hl--${segment.tag}">${escapeHtml(segment.content)}</span>`;
+        return `<span class="hl hl--${segment.tag}">${content}</span>`;
       }
-      return escapeHtml(segment.content);
+
+      // Preserve leading space after a highlight (flex/inline boundaries can collapse it)
+      const prev = segments[index - 1];
+      if (prev?.type === "highlight" && segment.content.startsWith(" ")) {
+        return "&nbsp;" + escapeHtml(segment.content.slice(1));
+      }
+
+      return content;
     })
     .join("");
 }

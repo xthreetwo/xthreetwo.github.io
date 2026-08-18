@@ -4,17 +4,54 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Ticker Overlay</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,700;1,400&family=Instrument+Serif&display=swap"
+      rel="stylesheet"
+    />
   </head>
   <body>
     <div id="app">
       <div class="ticker" role="marquee" aria-live="polite">
         <div class="ticker__brand">
-          <span class="ticker__brand-label">LIVE</span>
+          <div class="ticker__brand-inner">
+            <span class="ticker__brand-label">SuhhhCuh</span>
+            <div class="ticker__eyes" aria-hidden="true">
+              <div class="ticker__eyes-lines"></div>
+              <img
+                class="ticker__eye-white ticker__eye-white--left"
+                src="/assets/eyes/ellipse-left.svg"
+                alt=""
+                width="41"
+                height="41"
+              />
+              <img
+                class="ticker__eye-white ticker__eye-white--right"
+                src="/assets/eyes/ellipse-right.svg"
+                alt=""
+                width="41"
+                height="41"
+              />
+              <img
+                class="ticker__eye-pupil ticker__eye-pupil--left"
+                src="/assets/eyes/intersect.svg"
+                alt=""
+                width="19"
+                height="33"
+              />
+              <img
+                class="ticker__eye-pupil ticker__eye-pupil--right"
+                src="/assets/eyes/intersect.svg"
+                alt=""
+                width="19"
+                height="33"
+              />
+            </div>
+          </div>
         </div>
         <div class="ticker__viewport">
-          <div class="ticker__track" id="ticker-track">
-            <div class="ticker__content" id="ticker-content"></div>
-          </div>
+          <div class="ticker__stage" id="ticker-stage" aria-live="polite"></div>
         </div>
       </div>
     </div>

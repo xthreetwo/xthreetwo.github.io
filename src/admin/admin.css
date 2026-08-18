@@ -239,9 +239,8 @@ textarea {
 }
 
 .preview-box .hl--accent {
-  color: #ffd700;
-  font-weight: 800;
-  text-transform: uppercase;
+  color: #ff5b20;
+  font-weight: 700;
 }
 
 .preview-box .hl--bold {
@@ -287,9 +286,8 @@ textarea {
 }
 
 .item-card__text .hl--accent {
-  color: #ffd700;
-  font-weight: 800;
-  text-transform: uppercase;
+  color: #ff5b20;
+  font-weight: 700;
 }
 
 .item-card__text .hl--bold {
