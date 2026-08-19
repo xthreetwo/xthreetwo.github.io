@@ -12,6 +12,8 @@
   --ticker-brand-font: "Instrument Serif", Georgia, serif;
   --ticker-item-size: 30px;
   --ticker-brand-size: 45px;
+  --ticker-item-padding-left: 28px;
+  --ticker-item-padding-right: 10px;
 }
 
 *,
@@ -116,10 +118,26 @@ body {
 
 .ticker__item {
   position: absolute;
-  left: 10px;
-  right: 10px;
+  left: 0;
+  right: 0;
   top: 0;
   height: 100%;
+  transform: translateY(-100%);
+  opacity: 0;
+  transition:
+    transform var(--ticker-transition) ease,
+    opacity var(--ticker-transition) ease;
+}
+
+.ticker__item-track {
+  height: 100%;
+  overflow: hidden;
+  padding: 0 var(--ticker-item-padding-right) 0 var(--ticker-item-padding-left);
+  display: flex;
+  align-items: center;
+}
+
+.ticker__item-content {
   color: var(--ticker-text);
   font-family: var(--ticker-font);
   font-size: var(--ticker-item-size);
@@ -127,11 +145,22 @@ body {
   letter-spacing: -0.04em;
   line-height: var(--ticker-height);
   white-space: nowrap;
-  transform: translateY(-100%);
-  opacity: 0;
-  transition:
-    transform var(--ticker-transition) ease,
-    opacity var(--ticker-transition) ease;
+  display: inline-block;
+  will-change: transform;
+}
+
+.ticker__item-content--scroll {
+  animation: ticker-scroll-left var(--scroll-duration, 6s) linear forwards;
+  animation-delay: 0.8s;
+}
+
+@keyframes ticker-scroll-left {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(var(--scroll-distance, 0));
+  }
 }
 
 .ticker__item .hl {
@@ -152,7 +181,7 @@ body {
   display: flex;
   align-items: center;
   height: 100%;
-  padding: 0 1rem;
+  padding: 0 var(--ticker-item-padding-right) 0 var(--ticker-item-padding-left);
   color: rgba(25, 25, 25, 0.45);
   font-size: var(--ticker-item-size);
   font-style: italic;
