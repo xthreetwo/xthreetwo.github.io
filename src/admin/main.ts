@@ -3,10 +3,20 @@ import { supabase } from "../lib/supabase";
 import { renderHighlights } from "../lib/parseHighlights";
 import type { TickerItem } from "../shared/types";
 import {
+  formatAcrallyDisplayText,
+  formatAcrallyText,
   formatHoldLabel,
+  getItemDisplayText,
+  isAcrallyItem,
+  parseAcrallyStageRanks,
   presetFromSeconds,
   secondsFromPreset,
+  withAcrallyRankForStage,
 } from "../shared/types";
+import {
+  getDefaultAcrallyStage,
+  renderAcrallyStageOptions,
+} from "../shared/acrallyStages";
 import type { Session } from "@supabase/supabase-js";
 
 const app = document.getElementById("app")!;
@@ -14,6 +24,7 @@ const app = document.getElementById("app")!;
 let session: Session | null = null;
 let items: TickerItem[] = [];
 let showAddForm = false;
+let showAddAcrallyForm = false;
 let draggedId: string | null = null;
 
 // --- Auth ---
@@ -95,14 +106,17 @@ async function loadItems(): Promise<void> {
   items = data ?? [];
 }
 
-async function addItem(text: string, hold_seconds: number): Promise<void> {
-  const maxOrder = items.length > 0 ? Math.max(...items.map((i) => i.sort_order)) + 1 : 0;
+function nextSortOrder(): number {
+  return items.length > 0 ? Math.max(...items.map((i) => i.sort_order)) + 1 : 0;
+}
 
+async function addItem(text: string, hold_seconds: number): Promise<void> {
   const { error } = await supabase.from("ticker_items").insert({
     text,
-    sort_order: maxOrder,
+    sort_order: nextSortOrder(),
     active: true,
     hold_seconds,
+    item_type: "standard",
   });
 
   if (error) {
@@ -112,6 +126,34 @@ async function addItem(text: string, hold_seconds: number): Promise<void> {
 
   await loadItems();
   showAddForm = false;
+  renderDashboard();
+}
+
+async function addAcrallyItem(
+  stage: string,
+  rank: string,
+  hold_seconds: number
+): Promise<void> {
+  const text = formatAcrallyText(stage, rank);
+
+  const { error } = await supabase.from("ticker_items").insert({
+    text,
+    sort_order: nextSortOrder(),
+    active: true,
+    hold_seconds,
+    item_type: "acrally",
+    acrally_stage: stage,
+    acrally_rank: rank,
+    acrally_stage_ranks: { [stage]: rank },
+  });
+
+  if (error) {
+    alert(`Failed to add AC Rally item: ${error.message}`);
+    return;
+  }
+
+  await loadItems();
+  showAddAcrallyForm = false;
   renderDashboard();
 }
 
@@ -125,6 +167,79 @@ async function updateItem(id: string, updates: Partial<TickerItem>): Promise<voi
 
   await loadItems();
   renderDashboard();
+}
+
+async function updateAcrallyFields(
+  id: string,
+  updates: { stage?: string; rank?: string }
+): Promise<boolean> {
+  const item = items.find((i) => i.id === id);
+  if (!item || !isAcrallyItem(item)) return false;
+
+  const currentStage = (item.acrally_stage ?? getDefaultAcrallyStage()).trim();
+  let stageRanks = parseAcrallyStageRanks(item.acrally_stage_ranks);
+  let stage: string;
+  let rank: string;
+
+  if (updates.rank !== undefined) {
+    stage = currentStage;
+    rank = updates.rank.trim();
+    if (!rank) return false;
+    stageRanks = withAcrallyRankForStage(stageRanks, stage, rank);
+  } else if (updates.stage !== undefined) {
+    stage = updates.stage.trim();
+    rank = stageRanks[stage]?.trim() ?? "";
+  } else {
+    return false;
+  }
+
+  const stageChanged = stage !== currentStage;
+  const rankChanged = rank !== (item.acrally_rank ?? "").trim();
+  if (!stageChanged && !rankChanged) return false;
+
+  const text = formatAcrallyDisplayText(stage, rank);
+
+  const { error } = await supabase
+    .from("ticker_items")
+    .update({
+      acrally_stage: stage,
+      acrally_rank: rank,
+      acrally_stage_ranks: stageRanks,
+      text,
+    })
+    .eq("id", id);
+
+  if (error) {
+    alert(`Failed to update AC Rally item: ${error.message}`);
+    return false;
+  }
+
+  item.acrally_stage = stage;
+  item.acrally_rank = rank;
+  item.acrally_stage_ranks = stageRanks;
+  item.text = text;
+
+  const previewEl = document.getElementById(`text-${id}`);
+  if (previewEl) {
+    previewEl.innerHTML = renderHighlights(getItemDisplayText(item));
+  }
+
+  if (updates.stage !== undefined) {
+    const rankInput = document.getElementById(`rank-${id}`) as HTMLInputElement | null;
+    if (rankInput) {
+      rankInput.value = rank;
+    }
+  }
+
+  return true;
+}
+
+async function updateAcrallyRank(id: string, rank: string): Promise<boolean> {
+  return updateAcrallyFields(id, { rank });
+}
+
+async function updateAcrallyStage(id: string, stage: string): Promise<boolean> {
+  return updateAcrallyFields(id, { stage });
 }
 
 async function deleteItem(id: string): Promise<void> {
@@ -184,12 +299,48 @@ function renderHoldSelect(id: string, selectedSeconds?: number): string {
   `;
 }
 
+function renderStageOptionsMarkup(selected?: string): string {
+  return renderAcrallyStageOptions(selected, escapeHtml);
+}
+
+function renderStageSelect(id: string, selected?: string): string {
+  return `<select id="${id}" class="stage-select">${renderStageOptionsMarkup(selected)}</select>`;
+}
+
+function renderAddFormButtons(): string {
+  if (showAddForm || showAddAcrallyForm) return "";
+
+  return `
+    <div class="section-header__actions">
+      <button type="button" id="show-add-btn" class="btn btn--success">Add Item</button>
+      <button type="button" id="show-add-acrally-btn" class="btn btn--acrally">Add AC Rally Item</button>
+    </div>
+  `;
+}
+
+function updateAcrallyAddPreview(): void {
+  const stageSelect = document.getElementById("acrally-stage") as HTMLSelectElement | null;
+  const rankInput = document.getElementById("acrally-rank") as HTMLInputElement | null;
+  const previewEl = document.getElementById("acrally-add-preview");
+
+  if (!stageSelect || !rankInput || !previewEl) return;
+
+  const rank = rankInput.value.trim();
+  if (!rank) {
+    previewEl.innerHTML = '<span class="preview-placeholder">Preview appears here…</span>';
+    return;
+  }
+
+  const text = formatAcrallyText(stageSelect.value, rank);
+  previewEl.innerHTML = `<span class="ticker-preview-text">${renderHighlights(text)}</span>`;
+}
+
 function renderDashboard(): void {
   app.innerHTML = `
     <header class="admin-header">
       <h1>Ticker Admin</h1>
       <div class="admin-header__actions">
-        <a href="/overlay.html" target="_blank" class="btn btn--secondary">Preview Overlay</a>
+        <a href="/overlay.html" target="_blank" rel="noopener noreferrer" class="btn btn--secondary">Preview Overlay</a>
         <button id="logout-btn" class="btn btn--ghost">Sign Out</button>
       </div>
     </header>
@@ -197,7 +348,7 @@ function renderDashboard(): void {
     <section class="items-section">
       <div class="section-header">
         <h2>Ticker Items (${items.length})</h2>
-        ${showAddForm ? "" : '<button type="button" id="show-add-btn" class="btn btn--success">Add Item</button>'}
+        ${renderAddFormButtons()}
       </div>
 
       <section class="add-form" id="add-form-section" ${showAddForm ? "" : "hidden"}>
@@ -225,7 +376,32 @@ function renderDashboard(): void {
         </form>
       </section>
 
-      ${items.length === 0 && !showAddForm ? '<div class="empty-state">No items yet. Click Add Item to create your first ticker message.</div>' : ""}
+      <section class="add-form add-form--acrally" id="add-acrally-form-section" ${showAddAcrallyForm ? "" : "hidden"}>
+        <h2>Add AC Rally Item</h2>
+        <form id="add-acrally-form">
+          <div class="form-group">
+            <label for="acrally-stage">Current stage</label>
+            ${renderStageSelect("acrally-stage", getDefaultAcrallyStage())}
+          </div>
+          <div class="form-group">
+            <label for="acrally-rank">Current rank</label>
+            <input type="text" id="acrally-rank" placeholder="1" required />
+          </div>
+          <div class="preview-box" id="acrally-add-preview">
+            <span class="preview-placeholder">Preview appears here…</span>
+          </div>
+          <div class="form-group">
+            <label for="acrally-hold">Display time</label>
+            ${renderHoldSelect("acrally-hold")}
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="btn btn--acrally">Save AC Rally Item</button>
+            <button type="button" id="cancel-add-acrally-btn" class="btn btn--ghost">Cancel</button>
+          </div>
+        </form>
+      </section>
+
+      ${items.length === 0 && !showAddForm && !showAddAcrallyForm ? '<div class="empty-state">No items yet. Click Add Item or Add AC Rally Item to get started.</div>' : ""}
       <ul class="item-list" id="item-list">
         ${items.map((item, index) => renderItemCard(item, index)).join("")}
       </ul>
@@ -245,8 +421,19 @@ function renderDashboard(): void {
   if (showAddBtn) {
     showAddBtn.addEventListener("click", () => {
       showAddForm = true;
+      showAddAcrallyForm = false;
       renderDashboard();
       (document.getElementById("new-text") as HTMLTextAreaElement | null)?.focus();
+    });
+  }
+
+  const showAddAcrallyBtn = document.getElementById("show-add-acrally-btn");
+  if (showAddAcrallyBtn) {
+    showAddAcrallyBtn.addEventListener("click", () => {
+      showAddAcrallyForm = true;
+      showAddForm = false;
+      renderDashboard();
+      (document.getElementById("acrally-rank") as HTMLInputElement | null)?.focus();
     });
   }
 
@@ -254,6 +441,14 @@ function renderDashboard(): void {
   if (cancelAddBtn) {
     cancelAddBtn.addEventListener("click", () => {
       showAddForm = false;
+      renderDashboard();
+    });
+  }
+
+  const cancelAddAcrallyBtn = document.getElementById("cancel-add-acrally-btn");
+  if (cancelAddAcrallyBtn) {
+    cancelAddAcrallyBtn.addEventListener("click", () => {
+      showAddAcrallyForm = false;
       renderDashboard();
     });
   }
@@ -279,20 +474,95 @@ function renderDashboard(): void {
     });
   }
 
+  const addAcrallyForm = document.getElementById("add-acrally-form");
+  if (addAcrallyForm) {
+    const stageSelect = document.getElementById("acrally-stage") as HTMLSelectElement;
+    const rankInput = document.getElementById("acrally-rank") as HTMLInputElement;
+
+    stageSelect.addEventListener("change", updateAcrallyAddPreview);
+    rankInput.addEventListener("input", updateAcrallyAddPreview);
+
+    addAcrallyForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const rank = rankInput.value.trim();
+      if (!rank) return;
+      const holdSelect = document.getElementById("acrally-hold") as HTMLSelectElement;
+      const hold_seconds = secondsFromPreset(holdSelect.value);
+      await addAcrallyItem(stageSelect.value, rank, hold_seconds);
+    });
+  }
+
   bindItemEvents();
   bindDragReorder();
 }
 
 function renderItemCard(item: TickerItem, index: number): string {
+  if (isAcrallyItem(item)) {
+    return renderAcrallyItemCard(item, index);
+  }
+
   return `
     <li class="item-card ${item.active ? "" : "item-card--inactive"}" data-id="${item.id}">
       <div class="item-card__drag-handle" draggable="true" title="Drag to reorder" aria-label="Drag to reorder">⠿</div>
       <div class="item-card__slot">${index + 1}</div>
       <div class="item-card__body">
         <div class="item-card__preview">
-          <div class="ticker-preview-text" id="text-${item.id}">${renderHighlights(item.text)}</div>
+          <div class="ticker-preview-text" id="text-${item.id}">${renderHighlights(getItemDisplayText(item))}</div>
         </div>
         <div class="item-card__meta">Display: ${formatHoldLabel(item.hold_seconds)} · ${item.active ? "Active" : "Inactive"}</div>
+      </div>
+      <div class="item-card__actions">
+        <label class="toggle toggle--active">
+          <input type="checkbox" class="toggle-active" ${item.active ? "checked" : ""} />
+          <span>Active</span>
+        </label>
+        <div class="item-card__action-buttons">
+          <button type="button" class="btn btn--secondary btn--sm edit-btn">Edit</button>
+          <button type="button" class="btn btn--danger btn--sm delete-btn">Delete</button>
+        </div>
+      </div>
+    </li>
+  `;
+}
+
+function renderAcrallyItemCard(item: TickerItem, index: number): string {
+  const stage = item.acrally_stage ?? getDefaultAcrallyStage();
+  const rank = item.acrally_rank ?? "";
+
+  return `
+    <li class="item-card item-card--acrally ${item.active ? "" : "item-card--inactive"}" data-id="${item.id}">
+      <div class="item-card__drag-handle" draggable="true" title="Drag to reorder" aria-label="Drag to reorder">⠿</div>
+      <div class="item-card__slot">${index + 1}</div>
+      <div class="item-card__body">
+        <div class="item-card__acrally-header">
+          <span class="badge badge--acrally">AC Rally Mode</span>
+        </div>
+        <div class="item-card__preview">
+          <div class="ticker-preview-text" id="text-${item.id}">${renderHighlights(getItemDisplayText(item))}</div>
+        </div>
+        <div class="item-card__acrally-quick">
+          <div class="item-card__acrally-field">
+            <label class="item-card__acrally-field-label" for="stage-${item.id}">Current stage</label>
+            <select id="stage-${item.id}" class="acrally-stage-select" aria-label="Current stage">
+              ${renderStageOptionsMarkup(stage)}
+            </select>
+            <span class="acrally-field-status" id="stage-status-${item.id}" hidden>Saved</span>
+          </div>
+          <div class="item-card__acrally-field">
+            <label class="item-card__acrally-field-label" for="rank-${item.id}">Current rank</label>
+            <input
+              type="text"
+              id="rank-${item.id}"
+              class="acrally-rank-input"
+              value="${escapeHtml(rank)}"
+              aria-label="Current rank"
+            />
+            <span class="acrally-field-status" id="rank-status-${item.id}" hidden>Saved</span>
+          </div>
+        </div>
+        <div class="item-card__meta item-card__meta--acrally">
+          Display: ${formatHoldLabel(item.hold_seconds)} · ${item.active ? "Active" : "Inactive"}
+        </div>
       </div>
       <div class="item-card__actions">
         <label class="toggle toggle--active">
@@ -320,6 +590,57 @@ function bindItemEvents(): void {
     });
 
     card.querySelector(".edit-btn")!.addEventListener("click", () => startEdit(id));
+  });
+
+  bindAcrallyQuickFields();
+}
+
+function flashAcrallyFieldSaved(
+  fieldEl: HTMLElement,
+  statusEl: HTMLElement | null,
+  savedClass: string
+): void {
+  if (!statusEl) return;
+  statusEl.hidden = false;
+  fieldEl.classList.add(savedClass);
+  window.setTimeout(() => {
+    statusEl.hidden = true;
+    fieldEl.classList.remove(savedClass);
+  }, 1200);
+}
+
+function bindAcrallyQuickFields(): void {
+  document.querySelectorAll(".acrally-rank-input").forEach((input) => {
+    const rankInput = input as HTMLInputElement;
+    const id = rankInput.id.replace("rank-", "");
+    const statusEl = document.getElementById(`rank-status-${id}`);
+
+    const saveRank = async (): Promise<void> => {
+      const saved = await updateAcrallyRank(id, rankInput.value);
+      if (saved) flashAcrallyFieldSaved(rankInput, statusEl, "acrally-field--saved");
+    };
+
+    rankInput.addEventListener("blur", () => {
+      saveRank();
+    });
+
+    rankInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        rankInput.blur();
+      }
+    });
+  });
+
+  document.querySelectorAll(".acrally-stage-select").forEach((select) => {
+    const stageSelect = select as HTMLSelectElement;
+    const id = stageSelect.id.replace("stage-", "");
+    const statusEl = document.getElementById(`stage-status-${id}`);
+
+    stageSelect.addEventListener("change", async () => {
+      const saved = await updateAcrallyStage(id, stageSelect.value);
+      if (saved) flashAcrallyFieldSaved(stageSelect, statusEl, "acrally-field--saved");
+    });
   });
 }
 
@@ -374,6 +695,11 @@ function startEdit(id: string): void {
   const item = items.find((i) => i.id === id);
   if (!item) return;
 
+  if (isAcrallyItem(item)) {
+    startAcrallyEdit(id, item);
+    return;
+  }
+
   const textEl = document.getElementById(`text-${id}`)!;
   const card = textEl.closest(".item-card")!;
   const previewWrap = textEl.closest(".item-card__preview")!;
@@ -417,6 +743,50 @@ function startEdit(id: string): void {
     } else {
       renderDashboard();
     }
+  });
+
+  card.querySelector(".cancel-edit")!.addEventListener("click", () => renderDashboard());
+}
+
+function startAcrallyEdit(id: string, item: TickerItem): void {
+  const card = document.querySelector(`[data-id="${id}"]`) as HTMLElement;
+  const body = card.querySelector(".item-card__body")!;
+
+  card.querySelector(".item-card__actions")!.innerHTML = `
+    <div class="item-card__action-buttons item-card__action-buttons--edit">
+      <button type="button" class="btn btn--primary btn--sm save-edit">Save</button>
+      <button type="button" class="btn btn--ghost btn--sm cancel-edit">Cancel</button>
+    </div>
+  `;
+
+  const holdLabel = document.createElement("label");
+  holdLabel.className = "item-card__hold-label";
+  holdLabel.textContent = "Display time";
+
+  const holdSelect = document.createElement("select");
+  holdSelect.className = "item-card__hold";
+  holdSelect.innerHTML = `
+    <option value="default">Default (5s)</option>
+    <option value="extended">Extended (10s)</option>
+    <option value="super">Super (15s)</option>
+  `;
+  holdSelect.value = presetFromSeconds(item.hold_seconds);
+
+  const editNote = document.createElement("p");
+  editNote.className = "item-card__acrally-edit-note";
+  editNote.textContent = "Stage and rank can be updated directly on the card.";
+
+  const editFields = document.createElement("div");
+  editFields.className = "item-card__edit-fields";
+  editFields.append(editNote, holdLabel, holdSelect);
+
+  body.innerHTML = "";
+  body.append(editFields);
+  holdSelect.focus();
+
+  card.querySelector(".save-edit")!.addEventListener("click", async () => {
+    const hold_seconds = secondsFromPreset(holdSelect.value);
+    await updateItem(id, { hold_seconds });
   });
 
   card.querySelector(".cancel-edit")!.addEventListener("click", () => renderDashboard());
