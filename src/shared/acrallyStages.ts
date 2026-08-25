@@ -74,6 +74,29 @@ export const ACRALLY_STAGE_GROUPS: readonly AcrallyStageGroup[] = [
   },
 ];
 
+export function getAcrallyCategoryForStage(stageName: string): string {
+  for (const group of ACRALLY_STAGE_GROUPS) {
+    if (group.stages.includes(stageName)) {
+      return group.category;
+    }
+  }
+  return "";
+}
+
+export function formatAcrallyStageLabel(stageName: string): string {
+  const trimmed = stageName.trim();
+  if (!trimmed) return "Unknown";
+
+  const category = getAcrallyCategoryForStage(trimmed);
+  return category ? `${category} - ${trimmed}` : trimmed;
+}
+
+export function formatAcrallyRankLabel(rank: string): string {
+  const trimmed = rank.trim();
+  if (!trimmed || trimmed === "—") return "—";
+  return trimmed.startsWith("#") ? trimmed : `#${trimmed}`;
+}
+
 export function getAllAcrallyStages(): string[] {
   return ACRALLY_STAGE_GROUPS.flatMap((group) => [...group.stages]);
 }

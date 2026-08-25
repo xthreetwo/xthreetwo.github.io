@@ -10,7 +10,7 @@ import type { HighlightTag, ParsedSegment } from "../shared/types";
  *   {accent}text{/accent}  {bold}text{/bold}  {italic}text{/italic}
  */
 const HIGHLIGHT_PATTERN =
-  /\*\*([^*]+)\*\*|\*([^*]+)\*|'([^']+)'|\{accent\}([\s\S]*?)\{\/accent\}|\{bold\}([\s\S]*?)\{\/bold\}|\{italic\}([\s\S]*?)\{\/italic\}/g;
+  /\*\*([^*]+)\*\*|\{\{([^}]+)\}\}|\*([^*]+)\*|'([^']+)'|\{accent\}([\s\S]*?)\{\/accent\}|\{bold\}([\s\S]*?)\{\/bold\}|\{italic\}([\s\S]*?)\{\/italic\}/g;
 
 export function parseHighlights(input: string): ParsedSegment[] {
   const segments: ParsedSegment[] = [];
@@ -47,19 +47,22 @@ function matchToHighlight(match: RegExpMatchArray): { tag: HighlightTag; content
     return { tag: "accent", content: match[1] };
   }
   if (match[2] !== undefined) {
-    return { tag: "bold", content: match[2] };
+    return { tag: "accentPlain", content: match[2] };
   }
   if (match[3] !== undefined) {
-    return { tag: "italic", content: match[3] };
+    return { tag: "bold", content: match[3] };
   }
   if (match[4] !== undefined) {
-    return { tag: "accent", content: match[4] };
+    return { tag: "italic", content: match[4] };
   }
   if (match[5] !== undefined) {
-    return { tag: "bold", content: match[5] };
+    return { tag: "accent", content: match[5] };
   }
   if (match[6] !== undefined) {
-    return { tag: "italic", content: match[6] };
+    return { tag: "bold", content: match[6] };
+  }
+  if (match[7] !== undefined) {
+    return { tag: "italic", content: match[7] };
   }
   return null;
 }

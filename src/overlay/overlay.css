@@ -192,6 +192,11 @@ body {
   font-weight: 700;
 }
 
+.hl--accentPlain {
+  color: var(--ticker-accent);
+  font-weight: 400;
+}
+
 .hl--bold {
   font-weight: 700;
 }

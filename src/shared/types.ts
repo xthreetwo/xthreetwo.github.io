@@ -1,3 +1,5 @@
+import { formatAcrallyRankLabel, formatAcrallyStageLabel } from "./acrallyStages";
+
 export type TickerItemType = "standard" | "acrally";
 
 export interface TickerItem {
@@ -19,13 +21,16 @@ export function isAcrallyItem(item: TickerItem): boolean {
 }
 
 export function formatAcrallyText(stage: string, rank: string): string {
-  return `*Current Stage:* ${stage} **Current Rank: ${rank}**`;
+  const stageLabel = formatAcrallyStageLabel(stage);
+  const rankLabel = formatAcrallyRankLabel(rank);
+  const rankDisplay = rankLabel === "—" ? "—" : `{{${rankLabel}}}`;
+  return `*Current Stage:* ${stageLabel} **Current Rank:** ${rankDisplay}`;
 }
 
 export function getItemDisplayText(item: TickerItem): string {
   if (isAcrallyItem(item)) {
-    const stage = item.acrally_stage?.trim() || "Unknown";
-    const rank = item.acrally_rank?.trim() || "—";
+    const stage = item.acrally_stage?.trim() || "";
+    const rank = item.acrally_rank?.trim() || "";
     return formatAcrallyText(stage, rank);
   }
   return item.text;
@@ -59,8 +64,7 @@ export function withAcrallyRankForStage(
 }
 
 export function formatAcrallyDisplayText(stage: string, rank: string): string {
-  const displayRank = rank.trim() || "—";
-  return formatAcrallyText(stage, displayRank);
+  return formatAcrallyText(stage, rank);
 }
 
 export const DEFAULT_HOLD_SECONDS = 5;
@@ -116,7 +120,7 @@ export type TickerItemInsert = Pick<
 >;
 export type TickerItemUpdate = Partial<TickerItemInsert>;
 
-export type HighlightTag = "accent" | "bold" | "italic";
+export type HighlightTag = "accent" | "accentPlain" | "bold" | "italic";
 
 export interface ParsedSegment {
   type: "text" | "highlight";

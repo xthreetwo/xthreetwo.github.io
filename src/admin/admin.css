@@ -84,6 +84,11 @@ body {
   font-weight: 700;
 }
 
+.ticker-preview-text .hl--accentPlain {
+  color: var(--ticker-accent);
+  font-weight: 400;
+}
+
 .ticker-preview-text .hl--bold {
   font-weight: 700;
 }
