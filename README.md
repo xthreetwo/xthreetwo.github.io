@@ -7,7 +7,7 @@ An ESPN-style scrolling news ticker for Twitch streams, designed as a browser so
 | Page | URL | Purpose |
 |------|-----|---------|
 | Overlay | `https://xthreetwo.github.io/overlay.html` | Add as OBS Browser Source |
-| Admin | `https://xthreetwo.github.io/admin.html` | Manage ticker items |
+| Admin | `https://xthreetwo.github.io/admin.html` | Manage ticker items (`/admin` also works) |
 
 ## Quick Start
 
@@ -61,7 +61,7 @@ Show the current Spotify track on your ticker while you stream.
 ### Setup
 
 1. Create a free app at [Spotify Developer Dashboard](https://developer.spotify.com/dashboard).
-2. Add redirect URIs:
+2. Add redirect URIs (must match exactly — Spotify OAuth always uses `/admin.html`):
    - `https://xthreetwo.github.io/admin.html`
    - `http://localhost:5173/admin.html` (local dev)
 3. Copy the **Client ID** into `.env` as `VITE_SPOTIFY_CLIENT_ID` and into GitHub Actions secrets.

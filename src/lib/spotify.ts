@@ -20,8 +20,11 @@ export function isSpotifyConfigured(): boolean {
   return Boolean(SPOTIFY_CLIENT_ID);
 }
 
+/** Must match a redirect URI registered in the Spotify Developer Dashboard. */
+const SPOTIFY_REDIRECT_PATH = "/admin.html";
+
 export function getSpotifyRedirectUri(): string {
-  return `${window.location.origin}${window.location.pathname}`;
+  return `${window.location.origin}${SPOTIFY_REDIRECT_PATH}`;
 }
 
 function base64UrlEncode(buffer: ArrayBuffer): string {
