@@ -23,6 +23,27 @@ export type Database = {
         Insert: Omit<TickerItem, "id" | "created_at" | "updated_at">;
         Update: Partial<Omit<TickerItem, "id" | "created_at" | "updated_at">>;
       };
+      spotify_tokens: {
+        Row: {
+          user_id: string;
+          access_token: string;
+          refresh_token: string;
+          expires_at: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          user_id: string;
+          access_token: string;
+          refresh_token: string;
+          expires_at: string;
+        };
+        Update: Partial<{
+          access_token: string;
+          refresh_token: string;
+          expires_at: string;
+        }>;
+      };
     };
   };
 };

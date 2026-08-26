@@ -6,18 +6,40 @@ import {
   formatAcrallyDisplayText,
   formatAcrallyText,
   formatHoldLabel,
+  formatMusicText,
   getItemDisplayText,
   isAcrallyItem,
+  isMusicItem,
   parseAcrallyStageRanks,
   presetFromSeconds,
   secondsFromPreset,
   withAcrallyRankForStage,
+  DEFAULT_HOLD_SECONDS,
 } from "../shared/types";
 import {
   getDefaultAcrallyStage,
   renderAcrallyStageOptions,
 } from "../shared/acrallyStages";
+import {
+  clearSpotifyCallbackParams,
+  exchangeSpotifyCode,
+  fetchCurrentlyPlaying,
+  isSpotifyConfigured,
+  isSpotifyTokenExpired,
+  parseSpotifyCallbackCode,
+  refreshSpotifyAccessToken,
+  spotifyExpiresAt,
+  startSpotifyAuth,
+} from "../lib/spotify";
 import type { Session } from "@supabase/supabase-js";
+
+interface SpotifyTokenRow {
+  access_token: string;
+  refresh_token: string;
+  expires_at: string;
+}
+
+const SPOTIFY_POLL_MS = 5000;
 
 const app = document.getElementById("app")!;
 
@@ -26,26 +48,34 @@ let items: TickerItem[] = [];
 let showAddForm = false;
 let showAddAcrallyForm = false;
 let draggedId: string | null = null;
+let spotifyTokens: SpotifyTokenRow | null = null;
+let spotifyPollTimer: ReturnType<typeof setInterval> | null = null;
 
 // --- Auth ---
 
 async function init(): Promise<void> {
   const { data } = await supabase.auth.getSession();
   session = data.session;
+
+  if (session) {
+    await handleSpotifyOAuthCallbackIfPresent();
+    await loadItems();
+    await loadSpotifyTokens();
+  }
+
   render();
 
-  supabase.auth.onAuthStateChange((_event, newSession) => {
+  supabase.auth.onAuthStateChange(async (_event, newSession) => {
     session = newSession;
+    stopSpotifyPoller();
     if (newSession) {
-      loadItems();
+      await loadItems();
+      await loadSpotifyTokens();
+    } else {
+      spotifyTokens = null;
     }
     render();
   });
-
-  if (session) {
-    await loadItems();
-    render();
-  }
 }
 
 function renderLogin(): void {
@@ -87,6 +117,7 @@ async function handleLogin(e: Event): Promise<void> {
 }
 
 async function handleLogout(): Promise<void> {
+  stopSpotifyPoller();
   await supabase.auth.signOut();
 }
 
@@ -242,6 +273,249 @@ async function updateAcrallyStage(id: string, stage: string): Promise<boolean> {
   return updateAcrallyFields(id, { stage });
 }
 
+async function addMusicItem(hold_seconds: number): Promise<void> {
+  const text = formatMusicText("", "");
+
+  const { error } = await supabase.from("ticker_items").insert({
+    text,
+    sort_order: nextSortOrder(),
+    active: true,
+    hold_seconds,
+    item_type: "music",
+    music_track: "",
+    music_artist: "",
+  });
+
+  if (error) {
+    alert(`Failed to add music item: ${error.message}`);
+    return;
+  }
+
+  await loadItems();
+  renderDashboard();
+}
+
+async function updateMusicItemFields(
+  id: string,
+  track: string,
+  artist: string
+): Promise<boolean> {
+  const item = items.find((i) => i.id === id);
+  if (!item || !isMusicItem(item)) return false;
+
+  const prevTrack = (item.music_track ?? "").trim();
+  const prevArtist = (item.music_artist ?? "").trim();
+  if (track === prevTrack && artist === prevArtist) return false;
+
+  const text = formatMusicText(track, artist);
+
+  const { error } = await supabase
+    .from("ticker_items")
+    .update({
+      music_track: track,
+      music_artist: artist,
+      text,
+    })
+    .eq("id", id);
+
+  if (error) {
+    console.error("Failed to update music item:", error.message);
+    return false;
+  }
+
+  item.music_track = track;
+  item.music_artist = artist;
+  item.text = text;
+
+  const previewEl = document.getElementById(`text-${id}`);
+  if (previewEl) {
+    previewEl.innerHTML = renderHighlights(getItemDisplayText(item));
+  }
+
+  return true;
+}
+
+function hasActiveMusicItems(): boolean {
+  return items.some((item) => isMusicItem(item) && item.active);
+}
+
+async function loadSpotifyTokens(): Promise<void> {
+  if (!session?.user) {
+    spotifyTokens = null;
+    return;
+  }
+
+  const { data, error } = await supabase
+    .from("spotify_tokens")
+    .select("access_token, refresh_token, expires_at")
+    .eq("user_id", session.user.id)
+    .maybeSingle();
+
+  if (error) {
+    console.error("Failed to load Spotify tokens:", error.message);
+    spotifyTokens = null;
+    return;
+  }
+
+  spotifyTokens = data ?? null;
+}
+
+async function saveSpotifyTokens(
+  accessToken: string,
+  refreshToken: string,
+  expiresAt: string
+): Promise<boolean> {
+  if (!session?.user) return false;
+
+  const { error } = await supabase.from("spotify_tokens").upsert({
+    user_id: session.user.id,
+    access_token: accessToken,
+    refresh_token: refreshToken,
+    expires_at: expiresAt,
+  });
+
+  if (error) {
+    alert(`Failed to save Spotify connection: ${error.message}`);
+    return false;
+  }
+
+  spotifyTokens = {
+    access_token: accessToken,
+    refresh_token: refreshToken,
+    expires_at: expiresAt,
+  };
+
+  return true;
+}
+
+async function disconnectSpotify(): Promise<void> {
+  stopSpotifyPoller();
+
+  if (session?.user) {
+    const { error } = await supabase
+      .from("spotify_tokens")
+      .delete()
+      .eq("user_id", session.user.id);
+
+    if (error) {
+      alert(`Failed to disconnect Spotify: ${error.message}`);
+      return;
+    }
+  }
+
+  spotifyTokens = null;
+  renderDashboard();
+}
+
+async function handleSpotifyOAuthCallbackIfPresent(): Promise<void> {
+  const code = parseSpotifyCallbackCode();
+  if (!code) return;
+
+  clearSpotifyCallbackParams();
+
+  const tokenResponse = await exchangeSpotifyCode(code);
+  if (!tokenResponse) {
+    alert("Spotify authorization failed. Please try connecting again.");
+    return;
+  }
+
+  const refreshToken = tokenResponse.refresh_token ?? spotifyTokens?.refresh_token;
+  if (!refreshToken) {
+    alert("Spotify did not return a refresh token. Disconnect and connect again.");
+    return;
+  }
+
+  await saveSpotifyTokens(
+    tokenResponse.access_token,
+    refreshToken,
+    spotifyExpiresAt(tokenResponse.expires_in)
+  );
+}
+
+async function ensureSpotifyAccessToken(): Promise<string | null> {
+  if (!spotifyTokens) return null;
+
+  if (!isSpotifyTokenExpired(spotifyTokens.expires_at)) {
+    return spotifyTokens.access_token;
+  }
+
+  const refreshed = await refreshSpotifyAccessToken(spotifyTokens.refresh_token);
+  if (!refreshed) {
+    console.error("Spotify token refresh failed");
+    return null;
+  }
+
+  const refreshToken = refreshed.refresh_token ?? spotifyTokens.refresh_token;
+  const expiresAt = spotifyExpiresAt(refreshed.expires_in);
+  const saved = await saveSpotifyTokens(refreshed.access_token, refreshToken, expiresAt);
+  if (!saved) return null;
+
+  return refreshed.access_token;
+}
+
+async function pollSpotifyNowPlaying(): Promise<void> {
+  if (!spotifyTokens || !hasActiveMusicItems()) return;
+
+  const accessToken = await ensureSpotifyAccessToken();
+  if (!accessToken) return;
+
+  try {
+    const nowPlaying = await fetchCurrentlyPlaying(accessToken);
+    const track = nowPlaying?.track ?? "";
+    const artist = nowPlaying?.artist ?? "";
+
+    for (const item of items) {
+      if (!isMusicItem(item) || !item.active) continue;
+      await updateMusicItemFields(item.id, track, artist);
+    }
+  } catch (error) {
+    console.error("Spotify poll failed:", error);
+  }
+}
+
+function startSpotifyPoller(): void {
+  stopSpotifyPoller();
+
+  if (!spotifyTokens || !hasActiveMusicItems()) return;
+
+  spotifyPollTimer = window.setInterval(() => {
+    pollSpotifyNowPlaying();
+  }, SPOTIFY_POLL_MS);
+
+  pollSpotifyNowPlaying();
+}
+
+function stopSpotifyPoller(): void {
+  if (spotifyPollTimer !== null) {
+    clearInterval(spotifyPollTimer);
+    spotifyPollTimer = null;
+  }
+}
+
+function renderSpotifyStatusMarkup(): string {
+  if (!isSpotifyConfigured()) {
+    return `
+      <div class="spotify-panel spotify-panel--disabled">
+        <span class="spotify-panel__label">Spotify</span>
+        <span class="spotify-panel__status">Add VITE_SPOTIFY_CLIENT_ID to enable</span>
+      </div>
+    `;
+  }
+
+  const connected = Boolean(spotifyTokens);
+  const statusText = connected ? "Connected" : "Not connected";
+  const buttonLabel = connected ? "Disconnect Spotify" : "Connect Spotify";
+  const buttonId = connected ? "spotify-disconnect-btn" : "spotify-connect-btn";
+
+  return `
+    <div class="spotify-panel ${connected ? "spotify-panel--connected" : ""}">
+      <span class="spotify-panel__label">Spotify</span>
+      <span class="spotify-panel__status">${statusText}</span>
+      <button type="button" id="${buttonId}" class="btn btn--sm ${connected ? "btn--ghost" : "btn--music"}">${buttonLabel}</button>
+    </div>
+  `;
+}
+
 async function deleteItem(id: string): Promise<void> {
   if (!confirm("Delete this ticker item?")) return;
 
@@ -314,6 +588,7 @@ function renderAddFormButtons(): string {
     <div class="section-header__actions">
       <button type="button" id="show-add-btn" class="btn btn--success">Add Item</button>
       <button type="button" id="show-add-acrally-btn" class="btn btn--acrally">Add AC Rally Item</button>
+      <button type="button" id="show-add-music-btn" class="btn btn--music">Add Music Item</button>
     </div>
   `;
 }
@@ -336,10 +611,13 @@ function updateAcrallyAddPreview(): void {
 }
 
 function renderDashboard(): void {
+  stopSpotifyPoller();
+
   app.innerHTML = `
     <header class="admin-header">
       <h1>Ticker Admin</h1>
       <div class="admin-header__actions">
+        ${renderSpotifyStatusMarkup()}
         <a href="/overlay.html" target="_blank" rel="noopener noreferrer" class="btn btn--secondary">Preview Overlay</a>
         <button id="logout-btn" class="btn btn--ghost">Sign Out</button>
       </div>
@@ -401,7 +679,7 @@ function renderDashboard(): void {
         </form>
       </section>
 
-      ${items.length === 0 && !showAddForm && !showAddAcrallyForm ? '<div class="empty-state">No items yet. Click Add Item or Add AC Rally Item to get started.</div>' : ""}
+      ${items.length === 0 && !showAddForm && !showAddAcrallyForm ? '<div class="empty-state">No items yet. Click Add Item, Add AC Rally Item, or Add Music Item to get started.</div>' : ""}
       <ul class="item-list" id="item-list">
         ${items.map((item, index) => renderItemCard(item, index)).join("")}
       </ul>
@@ -416,6 +694,20 @@ function renderDashboard(): void {
   `;
 
   document.getElementById("logout-btn")!.addEventListener("click", handleLogout);
+
+  const spotifyConnectBtn = document.getElementById("spotify-connect-btn");
+  if (spotifyConnectBtn) {
+    spotifyConnectBtn.addEventListener("click", () => {
+      startSpotifyAuth();
+    });
+  }
+
+  const spotifyDisconnectBtn = document.getElementById("spotify-disconnect-btn");
+  if (spotifyDisconnectBtn) {
+    spotifyDisconnectBtn.addEventListener("click", () => {
+      disconnectSpotify();
+    });
+  }
 
   const showAddBtn = document.getElementById("show-add-btn");
   if (showAddBtn) {
@@ -434,6 +726,13 @@ function renderDashboard(): void {
       showAddForm = false;
       renderDashboard();
       (document.getElementById("acrally-rank") as HTMLInputElement | null)?.focus();
+    });
+  }
+
+  const showAddMusicBtn = document.getElementById("show-add-music-btn");
+  if (showAddMusicBtn) {
+    showAddMusicBtn.addEventListener("click", async () => {
+      await addMusicItem(DEFAULT_HOLD_SECONDS);
     });
   }
 
@@ -494,11 +793,16 @@ function renderDashboard(): void {
 
   bindItemEvents();
   bindDragReorder();
+  startSpotifyPoller();
 }
 
 function renderItemCard(item: TickerItem, index: number): string {
   if (isAcrallyItem(item)) {
     return renderAcrallyItemCard(item, index);
+  }
+
+  if (isMusicItem(item)) {
+    return renderMusicItemCard(item, index);
   }
 
   return `
@@ -578,6 +882,40 @@ function renderAcrallyItemCard(item: TickerItem, index: number): string {
   `;
 }
 
+function renderMusicItemCard(item: TickerItem, index: number): string {
+  const spotifyReady = Boolean(spotifyTokens);
+  const statusNote = spotifyReady
+    ? "Updates while this admin tab is open"
+    : "Connect Spotify above to sync now playing";
+
+  return `
+    <li class="item-card item-card--music ${item.active ? "" : "item-card--inactive"}" data-id="${item.id}">
+      <div class="item-card__drag-handle" draggable="true" title="Drag to reorder" aria-label="Drag to reorder">⠿</div>
+      <div class="item-card__slot">${index + 1}</div>
+      <div class="item-card__body">
+        <div class="item-card__music-header">
+          <span class="badge badge--music">Now Playing</span>
+        </div>
+        <div class="item-card__preview item-card__preview--music">
+          <div class="ticker-preview-text" id="text-${item.id}">${renderHighlights(getItemDisplayText(item))}</div>
+        </div>
+        <div class="item-card__meta item-card__meta--music">
+          ${statusNote} · Display: ${formatHoldLabel(item.hold_seconds)} · ${item.active ? "Active" : "Inactive"}
+        </div>
+      </div>
+      <div class="item-card__actions">
+        <label class="toggle toggle--active">
+          <input type="checkbox" class="toggle-active" ${item.active ? "checked" : ""} />
+          <span>Active</span>
+        </label>
+        <div class="item-card__action-buttons">
+          <button type="button" class="btn btn--danger btn--sm delete-btn">Delete</button>
+        </div>
+      </div>
+    </li>
+  `;
+}
+
 function bindItemEvents(): void {
   document.querySelectorAll(".item-card").forEach((card) => {
     const id = (card as HTMLElement).dataset.id!;
@@ -589,7 +927,10 @@ function bindItemEvents(): void {
       updateItem(id, { active: checked });
     });
 
-    card.querySelector(".edit-btn")!.addEventListener("click", () => startEdit(id));
+    const editBtn = card.querySelector(".edit-btn");
+    if (editBtn) {
+      editBtn.addEventListener("click", () => startEdit(id));
+    }
   });
 
   bindAcrallyQuickFields();
@@ -694,6 +1035,8 @@ function bindDragReorder(): void {
 function startEdit(id: string): void {
   const item = items.find((i) => i.id === id);
   if (!item) return;
+
+  if (isMusicItem(item)) return;
 
   if (isAcrallyItem(item)) {
     startAcrallyEdit(id, item);
