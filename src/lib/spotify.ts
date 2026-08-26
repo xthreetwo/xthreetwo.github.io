@@ -14,6 +14,20 @@ export interface SpotifyTokenResponse {
 export interface NowPlaying {
   track: string;
   artist: string;
+  albumArtUrl: string;
+}
+
+function pickAlbumArtUrl(
+  images: Array<{ url?: string; height?: number }> | undefined
+): string {
+  if (!images?.length) return "";
+
+  const withUrl = images.filter((img) => img.url?.trim());
+  if (!withUrl.length) return "";
+
+  const sorted = [...withUrl].sort((a, b) => (a.height ?? 0) - (b.height ?? 0));
+  const preferred = sorted.find((img) => (img.height ?? 0) >= 64);
+  return (preferred ?? sorted[sorted.length - 1]).url?.trim() ?? "";
 }
 
 export function isSpotifyConfigured(): boolean {
@@ -143,7 +157,9 @@ export async function fetchCurrentlyPlaying(accessToken: string): Promise<NowPla
 
   if (!track) return null;
 
-  return { track, artist };
+  const albumArtUrl = pickAlbumArtUrl(item.album?.images);
+
+  return { track, artist, albumArtUrl };
 }
 
 export function spotifyExpiresAt(expiresInSeconds: number): string {

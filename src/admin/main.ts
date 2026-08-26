@@ -284,6 +284,7 @@ async function addMusicItem(hold_seconds: number): Promise<void> {
     item_type: "music",
     music_track: "",
     music_artist: "",
+    music_album_art_url: "",
   });
 
   if (error) {
@@ -298,14 +299,18 @@ async function addMusicItem(hold_seconds: number): Promise<void> {
 async function updateMusicItemFields(
   id: string,
   track: string,
-  artist: string
+  artist: string,
+  albumArtUrl: string
 ): Promise<boolean> {
   const item = items.find((i) => i.id === id);
   if (!item || !isMusicItem(item)) return false;
 
   const prevTrack = (item.music_track ?? "").trim();
   const prevArtist = (item.music_artist ?? "").trim();
-  if (track === prevTrack && artist === prevArtist) return false;
+  const prevAlbumArt = (item.music_album_art_url ?? "").trim();
+  if (track === prevTrack && artist === prevArtist && albumArtUrl === prevAlbumArt) {
+    return false;
+  }
 
   const text = formatMusicText(track, artist);
 
@@ -314,6 +319,7 @@ async function updateMusicItemFields(
     .update({
       music_track: track,
       music_artist: artist,
+      music_album_art_url: albumArtUrl,
       text,
     })
     .eq("id", id);
@@ -325,11 +331,17 @@ async function updateMusicItemFields(
 
   item.music_track = track;
   item.music_artist = artist;
+  item.music_album_art_url = albumArtUrl;
   item.text = text;
 
   const previewEl = document.getElementById(`text-${id}`);
   if (previewEl) {
-    previewEl.innerHTML = renderHighlights(getItemDisplayText(item));
+    previewEl.innerHTML = renderMusicItemPreview(item);
+  }
+
+  const artEl = document.getElementById(`album-art-${id}`);
+  if (artEl) {
+    artEl.innerHTML = renderMusicAlbumArtMarkup(item);
   }
 
   return true;
@@ -463,10 +475,11 @@ async function pollSpotifyNowPlaying(): Promise<void> {
     const nowPlaying = await fetchCurrentlyPlaying(accessToken);
     const track = nowPlaying?.track ?? "";
     const artist = nowPlaying?.artist ?? "";
+    const albumArtUrl = nowPlaying?.albumArtUrl ?? "";
 
     for (const item of items) {
       if (!isMusicItem(item) || !item.active) continue;
-      await updateMusicItemFields(item.id, track, artist);
+      await updateMusicItemFields(item.id, track, artist, albumArtUrl);
     }
   } catch (error) {
     console.error("Spotify poll failed:", error);
@@ -882,6 +895,17 @@ function renderAcrallyItemCard(item: TickerItem, index: number): string {
   `;
 }
 
+function renderMusicAlbumArtMarkup(item: TickerItem): string {
+  const url = (item.music_album_art_url ?? "").trim();
+  if (!url) return "";
+
+  return `<img class="item-card__album-art" src="${escapeHtml(url)}" alt="" width="48" height="48" />`;
+}
+
+function renderMusicItemPreview(item: TickerItem): string {
+  return renderHighlights(getItemDisplayText(item));
+}
+
 function renderMusicItemCard(item: TickerItem, index: number): string {
   const spotifyReady = Boolean(spotifyTokens);
   const statusNote = spotifyReady
@@ -897,7 +921,10 @@ function renderMusicItemCard(item: TickerItem, index: number): string {
           <span class="badge badge--music">Now Playing</span>
         </div>
         <div class="item-card__preview item-card__preview--music">
-          <div class="ticker-preview-text" id="text-${item.id}">${renderHighlights(getItemDisplayText(item))}</div>
+          <div class="item-card__music-preview-row">
+            <span id="album-art-${item.id}">${renderMusicAlbumArtMarkup(item)}</span>
+            <div class="ticker-preview-text" id="text-${item.id}">${renderMusicItemPreview(item)}</div>
+          </div>
         </div>
         <div class="item-card__meta item-card__meta--music">
           ${statusNote} · Display: ${formatHoldLabel(item.hold_seconds)} · ${item.active ? "Active" : "Inactive"}

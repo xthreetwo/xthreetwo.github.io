@@ -1,5 +1,10 @@
 import { renderHighlights } from "./parseHighlights";
-import { getItemDisplayText, getItemHoldMs, type TickerItem } from "../shared/types";
+import {
+  getItemDisplayText,
+  getItemHoldMs,
+  isMusicItem,
+  type TickerItem,
+} from "../shared/types";
 
 export const TICKER_ENTER_MS = 1000;
 export const TICKER_EXIT_MS = 1000;
@@ -30,6 +35,14 @@ function setupHorizontalScroll(itemEl: HTMLElement, item: TickerItem): void {
   content.style.setProperty("--scroll-duration", `${scrollDurationMs}ms`);
 }
 
+function escapeAttr(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
 async function playItem(
   stageEl: HTMLElement,
   item: TickerItem,
@@ -39,11 +52,22 @@ async function playItem(
   if (!isActive(runId)) return;
 
   const displayText = getItemDisplayText(item);
+  const albumArtUrl = (item.music_album_art_url ?? "").trim();
+  const showAlbumArt = isMusicItem(item) && albumArtUrl;
+  const contentClass = showAlbumArt
+    ? "ticker__item-content ticker__item-content--music"
+    : "ticker__item-content";
+  const albumArtHtml = showAlbumArt
+    ? `<img class="ticker__album-art" src="${escapeAttr(albumArtUrl)}" alt="" />`
+    : "";
 
   stageEl.innerHTML = `
     <div class="ticker__item">
       <div class="ticker__item-track">
-        <div class="ticker__item-content">${renderHighlights(displayText)}</div>
+        <div class="${contentClass}">
+          ${albumArtHtml}
+          <span class="ticker__item-text">${renderHighlights(displayText)}</span>
+        </div>
       </div>
     </div>
   `;

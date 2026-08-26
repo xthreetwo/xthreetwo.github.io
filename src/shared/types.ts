@@ -14,6 +14,7 @@ export interface TickerItem {
   acrally_stage_ranks?: Record<string, string> | null;
   music_track?: string | null;
   music_artist?: string | null;
+  music_album_art_url?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -142,6 +143,7 @@ export type TickerItemInsert = Pick<
   | "acrally_stage_ranks"
   | "music_track"
   | "music_artist"
+  | "music_album_art_url"
 >;
 export type TickerItemUpdate = Partial<TickerItemInsert>;
 

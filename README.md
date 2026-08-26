@@ -65,7 +65,9 @@ Show the current Spotify track on your ticker while you stream.
    - `https://xthreetwo.github.io/admin.html`
    - `http://localhost:5173/admin.html` (local dev)
 3. Copy the **Client ID** into `.env` as `VITE_SPOTIFY_CLIENT_ID` and into GitHub Actions secrets.
-4. Run migration [`supabase/migrations/005_music_ticker.sql`](supabase/migrations/005_music_ticker.sql) in Supabase SQL Editor.
+4. Run migrations in Supabase SQL Editor:
+   - [`005_music_ticker.sql`](supabase/migrations/005_music_ticker.sql)
+   - [`006_music_album_art.sql`](supabase/migrations/006_music_album_art.sql)
 
 ### Usage
 
@@ -74,7 +76,7 @@ Show the current Spotify track on your ticker while you stream.
 3. **Keep the admin tab open** during your stream — it polls Spotify every ~5 seconds and updates the overlay via Supabase Realtime.
 4. Play music in Spotify (desktop or mobile with active playback).
 
-Display format: `*Now Playing:* **Track - Artist**`
+Display format: album art thumbnail + `*Now Playing:* **Track - Artist**`
 
 No Spotify Premium required for reading now playing. The Spotify API and Developer app are free.
 
