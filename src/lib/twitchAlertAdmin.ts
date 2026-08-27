@@ -1,5 +1,4 @@
-import { FunctionsHttpError } from "@supabase/supabase-js";
-import { supabase } from "./supabase";
+import { supabase, supabaseAnonKey, supabaseUrl } from "./supabase";
 import {
   DEFAULT_ALERT_DURATION_MS,
   DEFAULT_ALERT_TEMPLATES,
@@ -16,50 +15,59 @@ export async function registerTwitchEventSub(): Promise<{
   failures?: Array<{ type: string; message: string }>;
   error?: string;
 }> {
-  const { data, error } = await supabase.functions.invoke("twitch-eventsub-register");
+  const { data: sessionData } = await supabase.auth.getSession();
+  const accessToken = sessionData.session?.access_token;
 
-  if (error) {
-    let message = error.message;
-
-    if (error instanceof FunctionsHttpError) {
-      try {
-        const body = await error.context.json();
-        if (typeof body?.error === "string") {
-          message = body.error;
-        }
-        if (body && typeof body === "object") {
-          return {
-            ok: false,
-            created: body.created,
-            failed: body.failed,
-            failures: body.failures,
-            error: message,
-          };
-        }
-      } catch {
-        // use default message
-      }
-    }
-
-    console.error("EventSub register failed:", message);
-    return { ok: false, error: message };
+  if (!accessToken) {
+    return { ok: false, error: "Not signed in — sign out and sign in again." };
   }
 
-  const body = data as {
-    ok?: boolean;
-    created?: string[];
-    failed?: string[];
-    failures?: Array<{ type: string; message: string }>;
-    error?: string;
-  };
+  if (!supabaseUrl || !supabaseAnonKey) {
+    return { ok: false, error: "Supabase URL or API key is not configured in .env" };
+  }
 
-  return {
-    ok: Boolean(body?.ok),
-    created: body?.created,
-    failed: body?.failed,
-    failures: body?.failures,
-    error: body?.error,
-  };
+  const url = `${supabaseUrl.replace(/\/$/, "")}/functions/v1/twitch-eventsub-register`;
+
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: supabaseAnonKey,
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: "{}",
+    });
+
+    const body = await res.json().catch(() => null);
+
+    if (!res.ok) {
+      const message =
+        typeof body?.error === "string" ? body.error : `Request failed (HTTP ${res.status})`;
+      return {
+        ok: false,
+        error: message,
+        created: body?.created,
+        failed: body?.failed,
+        failures: body?.failures,
+      };
+    }
+
+    return {
+      ok: Boolean(body?.ok),
+      created: body?.created,
+      failed: body?.failed,
+      failures: body?.failures,
+      error: body?.error,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Network error";
+    console.error("EventSub register failed:", message);
+    return {
+      ok: false,
+      error: `Could not reach Edge Function (${message}). Redeploy twitch-eventsub-register and check CORS.`,
+    };
+  }
 }
 
 export function formatEventSubRegisterError(result: {

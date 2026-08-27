@@ -1,19 +1,19 @@
 import { createClient } from "@supabase/supabase-js";
 import type { TickerItem } from "../shared/types";
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const supabaseUrlEnv = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKeyEnv = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-if (!supabaseUrl || !supabaseAnonKey) {
+if (!supabaseUrlEnv || !supabaseAnonKeyEnv) {
   console.warn(
     "Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY. Copy .env.example to .env and add your Supabase credentials."
   );
 }
 
-export const supabase = createClient(
-  supabaseUrl ?? "https://placeholder.supabase.co",
-  supabaseAnonKey ?? "placeholder-key"
-);
+export const supabaseUrl = supabaseUrlEnv ?? "https://placeholder.supabase.co";
+export const supabaseAnonKey = supabaseAnonKeyEnv ?? "placeholder-key";
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 export type Database = {
   public: {
