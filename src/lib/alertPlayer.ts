@@ -4,9 +4,6 @@ import type { TickerAlertEventRow } from "../shared/twitchAlerts";
 import type { TickerPlayerControls } from "./tickerPlayer";
 
 const TICKER_ALERT_EXIT_MS = 400;
-const ALERT_FLASH_ON_MS = 300;
-const ALERT_FLASH_OFF_MS = 200;
-const ALERT_FLASH_COUNT = 2;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -14,19 +11,6 @@ function sleep(ms: number): Promise<void> {
 
 function setAlertVisualActive(tickerEl: HTMLElement, active: boolean): void {
   tickerEl.classList.toggle("ticker--alert-active", active);
-}
-
-async function runAlertIntro(tickerEl: HTMLElement): Promise<void> {
-  for (let i = 0; i < ALERT_FLASH_COUNT; i++) {
-    setAlertVisualActive(tickerEl, true);
-    await sleep(ALERT_FLASH_ON_MS);
-    if (i < ALERT_FLASH_COUNT - 1) {
-      setAlertVisualActive(tickerEl, false);
-      await sleep(ALERT_FLASH_OFF_MS);
-    }
-  }
-
-  setAlertVisualActive(tickerEl, true);
 }
 
 function clearAlertVisuals(tickerEl: HTMLElement): void {
@@ -50,7 +34,7 @@ async function showAlert(
   alertLayerEl: HTMLElement,
   event: TickerAlertEventRow
 ): Promise<void> {
-  await runAlertIntro(tickerEl);
+  setAlertVisualActive(tickerEl, true);
 
   alertLayerEl.hidden = false;
   alertLayerEl.innerHTML = `
