@@ -4,6 +4,24 @@ import type { TickerAlertEventRow } from "../shared/twitchAlerts";
 import type { TickerPlayerControls } from "./tickerPlayer";
 
 const TICKER_ALERT_EXIT_MS = 400;
+const ALERT_FLASH_ON_MS = 175;
+const ALERT_FLASH_OFF_MS = 125;
+const ALERT_FLASH_COUNT = 2;
+
+async function runAlertIntro(tickerEl: HTMLElement): Promise<void> {
+  for (let i = 0; i < ALERT_FLASH_COUNT; i++) {
+    tickerEl.classList.add("ticker--alert-active");
+    await sleep(ALERT_FLASH_ON_MS);
+    if (i < ALERT_FLASH_COUNT - 1) {
+      tickerEl.classList.remove("ticker--alert-active");
+      await sleep(ALERT_FLASH_OFF_MS);
+    }
+  }
+}
+
+function clearAlertVisuals(tickerEl: HTMLElement): void {
+  tickerEl.classList.remove("ticker--alert-active");
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -22,9 +40,12 @@ async function playAlertSound(url: string): Promise<void> {
 }
 
 async function showAlert(
+  tickerEl: HTMLElement,
   alertLayerEl: HTMLElement,
   event: TickerAlertEventRow
 ): Promise<void> {
+  await runAlertIntro(tickerEl);
+
   alertLayerEl.hidden = false;
   alertLayerEl.innerHTML = `
     <div class="ticker__alert">
@@ -51,9 +72,11 @@ async function showAlert(
 
   alertLayerEl.hidden = true;
   alertLayerEl.innerHTML = "";
+  clearAlertVisuals(tickerEl);
 }
 
 export function createAlertPlayer(
+  tickerEl: HTMLElement,
   alertLayerEl: HTMLElement,
   tickerPlayer: TickerPlayerControls
 ): { enqueue: (event: TickerAlertEventRow) => void } {
@@ -67,7 +90,7 @@ export function createAlertPlayer(
     while (queue.length > 0) {
       const event = queue.shift()!;
       tickerPlayer.interruptAndPause();
-      await showAlert(alertLayerEl, event);
+      await showAlert(tickerEl, alertLayerEl, event);
       tickerPlayer.resume();
     }
 

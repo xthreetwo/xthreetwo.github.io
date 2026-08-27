@@ -6,18 +6,21 @@ import {
   formatAcrallyDisplayText,
   formatAcrallyText,
   formatHoldLabel,
+  formatHoldPresetLabel,
   formatMusicLabel,
   formatMusicText,
   formatMusicTitle,
   formatStreamTitleText,
   formatStreamTitleValue,
   getItemDisplayText,
+  HOLD_PRESETS,
   isAcrallyItem,
   isMusicItem,
   isStreamTitleItem,
   parseAcrallyStageRanks,
   presetFromSeconds,
   secondsFromPreset,
+  type HoldPreset,
   withAcrallyRankForStage,
   DEFAULT_HOLD_SECONDS,
 } from "../shared/types";
@@ -102,7 +105,6 @@ interface TwitchTokenRow {
 }
 
 const SPOTIFY_POLL_MS = 5000;
-const ALERT_DURATION_OPTIONS = [3000, 5000, 8000, 10000];
 const TWITCH_POLL_MS = 300000;
 
 const app = document.getElementById("app")!;
@@ -1091,11 +1093,15 @@ function render(): void {
 
 function renderHoldSelect(id: string, selectedSeconds?: number): string {
   const selected = presetFromSeconds(selectedSeconds);
+  const options = (Object.keys(HOLD_PRESETS) as HoldPreset[])
+    .map(
+      (preset) =>
+        `<option value="${preset}" ${selected === preset ? "selected" : ""}>${formatHoldPresetLabel(preset)}</option>`
+    )
+    .join("");
   return `
     <select id="${id}" class="hold-select">
-      <option value="default" ${selected === "default" ? "selected" : ""}>Default (5s)</option>
-      <option value="extended" ${selected === "extended" ? "selected" : ""}>Extended (10s)</option>
-      <option value="super" ${selected === "super" ? "selected" : ""}>Super (15s)</option>
+      ${options}
     </select>
   `;
 }
@@ -1376,16 +1382,6 @@ function renderAlertQuickTestButtons(): string {
   }).join("");
 }
 
-function renderAlertDurationSelect(id: string, durationMs: number): string {
-  const options = ALERT_DURATION_OPTIONS.map((ms) => {
-    const label = ms >= 1000 ? `${ms / 1000}s` : `${ms}ms`;
-    const selected = ms === durationMs ? " selected" : "";
-    return `<option value="${ms}"${selected}>${label}</option>`;
-  });
-
-  return `<select id="${id}">${options.join("")}</select>`;
-}
-
 function twitchAlertsStatusText(): string {
   if (!twitchTokens) return "";
 
@@ -1453,7 +1449,7 @@ function renderAlertTypeCards(): string {
         </div>
         <div class="form-group">
           <label for="alert-duration-${alertType}">Duration</label>
-          ${renderAlertDurationSelect(`alert-duration-${alertType}`, setting.duration_ms)}
+          ${renderHoldSelect(`alert-duration-${alertType}`, setting.duration_ms / 1000)}
         </div>
       </div>
     `;
@@ -1487,7 +1483,6 @@ function renderTwitchAlertsSection(): string {
   const saveAlertsBtn = areAlertSettingsDirty()
     ? `<button type="button" id="alerts-save-btn" class="btn btn--sm btn--primary">Save alerts</button>`
     : "";
-  const testChevron = showAlertsTestPanel ? "expand_less" : "expand_more";
 
   return `
     <section class="alerts-section" id="alerts-section">
@@ -1503,24 +1498,29 @@ function renderTwitchAlertsSection(): string {
           <span class="alerts-section__title">Twitch Alerts</span>
           <span class="alerts-section__status ${statusClass}">${escapeHtml(statusLabel)}</span>
         </button>
-        <div class="alerts-section__actions">
-          ${enableAlertsBtn}
-          <button
-            type="button"
-            id="alerts-test-toggle"
-            class="btn btn--sm btn--ghost alerts-section__test-toggle ${showAlertsTestPanel ? "alerts-section__test-toggle--open" : ""}"
-            aria-expanded="${showAlertsTestPanel}"
-            aria-controls="alerts-test-panel"
+        <div class="alerts-section__bar-end">
+          <div
+            class="alerts-section__test-inline"
+            id="alerts-test-panel"
+            ${showAlertsTestPanel ? "" : "hidden"}
+            aria-label="Test alerts"
           >
-            <span class="material-icons" aria-hidden="true">${testChevron}</span>
-            Test
-          </button>
-          ${saveAlertsBtn}
+            <div class="alerts-section__test-options">${renderAlertQuickTestButtons()}</div>
+          </div>
+          <div class="alerts-section__actions">
+            ${enableAlertsBtn}
+            <button
+              type="button"
+              id="alerts-test-toggle"
+              class="btn btn--sm btn--ghost alerts-section__test-toggle ${showAlertsTestPanel ? "alerts-section__test-toggle--open" : ""}"
+              aria-expanded="${showAlertsTestPanel}"
+              aria-controls="alerts-test-panel"
+            >
+              Test Alerts
+            </button>
+            ${saveAlertsBtn}
+          </div>
         </div>
-      </div>
-      <div class="alerts-section__test-panel" id="alerts-test-panel" ${showAlertsTestPanel ? "" : "hidden"}>
-        <p class="alerts-section__test-hint">Send a test alert to the overlay</p>
-        <div class="alerts-section__test-options">${renderAlertQuickTestButtons()}</div>
       </div>
       <div class="alerts-section__body" id="alerts-panel-body" ${showAlertsPanel ? "" : "hidden"}>
         <p class="syntax-help alerts-section__intro">
@@ -1549,7 +1549,7 @@ function collectAlertSettingsFromDom(): TickerAlertSettingsRow[] {
       enabled: enabledEl?.checked ?? true,
       template: templateEl?.value.trim() ?? "",
       sound_url: soundEl?.value.trim() ?? `/sounds/${alertType}.mp3`,
-      duration_ms: Number(durationEl?.value ?? 5000),
+      duration_ms: secondsFromPreset(durationEl?.value ?? "twitch_alert") * 1000,
     };
   });
 }
@@ -2223,12 +2223,14 @@ function bindDragReorder(): void {
 function createHoldSelectElement(selectedSeconds?: number): HTMLSelectElement {
   const holdSelect = document.createElement("select");
   holdSelect.className = "item-card__hold";
-  holdSelect.innerHTML = `
-    <option value="default">Default (5s)</option>
-    <option value="extended">Extended (10s)</option>
-    <option value="super">Super (15s)</option>
-  `;
-  holdSelect.value = presetFromSeconds(selectedSeconds);
+  const selected = presetFromSeconds(selectedSeconds);
+  holdSelect.innerHTML = (Object.keys(HOLD_PRESETS) as HoldPreset[])
+    .map(
+      (preset) =>
+        `<option value="${preset}">${formatHoldPresetLabel(preset)}</option>`
+    )
+    .join("");
+  holdSelect.value = selected;
   return holdSelect;
 }
 

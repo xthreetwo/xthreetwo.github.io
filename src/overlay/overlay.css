@@ -58,6 +58,38 @@ body {
   background: var(--ticker-bg);
 }
 
+.ticker__brand,
+.ticker__viewport,
+.ticker__edge--left,
+.ticker__edge--right {
+  transition: background-color 0.12s ease;
+}
+
+/* Alert state — accent brand panel, dark ticker, light text */
+.ticker--alert-active {
+  --ticker-text: var(--ticker-brand-text);
+}
+
+.ticker--alert-active .ticker__brand,
+.ticker--alert-active .ticker__edge--left {
+  background: var(--ticker-accent);
+}
+
+.ticker--alert-active .ticker__viewport,
+.ticker--alert-active .ticker__edge--right,
+.ticker--alert-active .ticker__alert-track {
+  background: var(--ticker-brand-bg);
+}
+
+.ticker--alert-active .ticker__item-content,
+.ticker--alert-active .ticker__alert-content {
+  color: var(--ticker-brand-text);
+}
+
+.ticker--alert-active .ticker__empty {
+  color: rgba(255, 250, 238, 0.45);
+}
+
 .ticker__center {
   display: flex;
   align-items: stretch;

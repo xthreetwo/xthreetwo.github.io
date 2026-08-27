@@ -124,11 +124,13 @@ export const HOLD_PRESETS = {
   default: 5,
   extended: 10,
   super: 15,
+  twitch_alert: 7,
 } as const;
 
 export type HoldPreset = keyof typeof HOLD_PRESETS;
 
 export function presetFromSeconds(seconds?: number): HoldPreset {
+  if (seconds === HOLD_PRESETS.twitch_alert) return "twitch_alert";
   if (seconds === HOLD_PRESETS.extended) return "extended";
   if (seconds === HOLD_PRESETS.super) return "super";
   return "default";
@@ -138,16 +140,21 @@ export function secondsFromPreset(preset: string): number {
   return HOLD_PRESETS[preset as HoldPreset] ?? DEFAULT_HOLD_SECONDS;
 }
 
-export function formatHoldLabel(seconds?: number): string {
-  const preset = presetFromSeconds(seconds);
+export function formatHoldPresetLabel(preset: HoldPreset): string {
   switch (preset) {
     case "extended":
       return "Extended (10s)";
     case "super":
       return "Super (15s)";
+    case "twitch_alert":
+      return "Twitch Alert (7s)";
     default:
       return "Default (5s)";
   }
+}
+
+export function formatHoldLabel(seconds?: number): string {
+  return formatHoldPresetLabel(presetFromSeconds(seconds));
 }
 
 export function getItemHoldMs(item: TickerItem): number {

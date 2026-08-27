@@ -1,3 +1,5 @@
+import { HOLD_PRESETS } from "./types";
+
 export const TWITCH_ALERT_TYPES = [
   "follow",
   "subscribe",
@@ -8,7 +10,7 @@ export const TWITCH_ALERT_TYPES = [
 
 export type TwitchAlertType = (typeof TWITCH_ALERT_TYPES)[number];
 
-export const DEFAULT_ALERT_DURATION_MS = 5000;
+export const DEFAULT_ALERT_DURATION_MS = HOLD_PRESETS.twitch_alert * 1000;
 
 export const DEFAULT_ALERT_TEMPLATES: Record<TwitchAlertType, string> = {
   follow: "**{user}** just followed!",
