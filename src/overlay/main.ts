@@ -7,7 +7,7 @@ import type { TickerItem } from "../shared/types";
 
 const stageEl = document.getElementById("ticker-stage");
 const alertLayerEl = document.getElementById("ticker-alert-layer");
-const tickerEl = document.querySelector(".ticker");
+const tickerEl = document.getElementById("ticker-root");
 
 if (!stageEl || !alertLayerEl || !tickerEl) {
   throw new Error("Ticker overlay elements not found");
@@ -21,7 +21,7 @@ const player = createTickerPlayer(
   "No ticker items — add some in the admin panel"
 );
 
-const alertPlayer = createAlertPlayer(tickerEl as HTMLElement, alertLayerEl, player);
+const alertPlayer = createAlertPlayer(tickerEl, alertLayerEl, player);
 
 async function fetchItems(): Promise<TickerItem[]> {
   const { data, error } = await supabase

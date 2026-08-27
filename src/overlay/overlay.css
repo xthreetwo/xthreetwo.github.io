@@ -40,6 +40,8 @@ body {
 }
 
 .ticker {
+  --ticker-surface-brand: var(--ticker-brand-bg);
+  --ticker-surface-main: var(--ticker-bg);
   position: fixed;
   top: 0;
   left: 0;
@@ -51,43 +53,21 @@ body {
 }
 
 .ticker__edge--left {
-  background: var(--ticker-brand-bg);
+  background: var(--ticker-surface-brand);
 }
 
 .ticker__edge--right {
-  background: var(--ticker-bg);
+  background: var(--ticker-surface-main);
 }
 
 .ticker__brand,
 .ticker__viewport,
 .ticker__edge--left,
-.ticker__edge--right {
-  transition: background-color 0.12s ease;
-}
-
-/* Alert state — accent brand panel, dark ticker, light text */
-.ticker--alert-active {
-  --ticker-text: var(--ticker-brand-text);
-}
-
-.ticker--alert-active .ticker__brand,
-.ticker--alert-active .ticker__edge--left {
-  background: var(--ticker-accent);
-}
-
-.ticker--alert-active .ticker__viewport,
-.ticker--alert-active .ticker__edge--right,
-.ticker--alert-active .ticker__alert-track {
-  background: var(--ticker-brand-bg);
-}
-
-.ticker--alert-active .ticker__item-content,
-.ticker--alert-active .ticker__alert-content {
-  color: var(--ticker-brand-text);
-}
-
-.ticker--alert-active .ticker__empty {
-  color: rgba(255, 250, 238, 0.45);
+.ticker__edge--right,
+.ticker__alert-track {
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
 }
 
 .ticker__center {
@@ -100,7 +80,7 @@ body {
 /* Brand block — dark panel with SuhhhCuh + eyes */
 .ticker__brand {
   flex-shrink: 0;
-  background: var(--ticker-brand-bg);
+  background: var(--ticker-surface-brand);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -138,7 +118,7 @@ body {
   flex: 1;
   overflow: hidden;
   position: relative;
-  background: var(--ticker-bg);
+  background: var(--ticker-surface-main);
   min-width: 0;
 }
 
@@ -189,7 +169,7 @@ body {
   padding: 0 var(--ticker-item-padding-right) 0 var(--ticker-item-padding-left);
   display: flex;
   align-items: center;
-  background: var(--ticker-bg);
+  background: var(--ticker-surface-main);
 }
 
 .ticker__alert-content {
@@ -304,7 +284,7 @@ body {
   align-items: center;
   height: 100%;
   padding: 0 var(--ticker-item-padding-right) 0 var(--ticker-item-padding-left);
-  color: rgba(25, 25, 25, 0.45);
+  color: color-mix(in srgb, var(--ticker-text) 45%, transparent);
   font-size: var(--ticker-item-size);
   font-style: italic;
 }
@@ -325,4 +305,11 @@ body {
 
 .hl--italic {
   font-style: italic;
+}
+
+/* Alert state — accent brand panel, dark ticker, light text */
+.ticker--alert-active {
+  --ticker-surface-brand: var(--ticker-accent);
+  --ticker-surface-main: var(--ticker-brand-bg);
+  --ticker-text: var(--ticker-brand-text);
 }

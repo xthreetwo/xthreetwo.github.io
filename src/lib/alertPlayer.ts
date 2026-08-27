@@ -4,27 +4,33 @@ import type { TickerAlertEventRow } from "../shared/twitchAlerts";
 import type { TickerPlayerControls } from "./tickerPlayer";
 
 const TICKER_ALERT_EXIT_MS = 400;
-const ALERT_FLASH_ON_MS = 175;
-const ALERT_FLASH_OFF_MS = 125;
+const ALERT_FLASH_ON_MS = 300;
+const ALERT_FLASH_OFF_MS = 200;
 const ALERT_FLASH_COUNT = 2;
-
-async function runAlertIntro(tickerEl: HTMLElement): Promise<void> {
-  for (let i = 0; i < ALERT_FLASH_COUNT; i++) {
-    tickerEl.classList.add("ticker--alert-active");
-    await sleep(ALERT_FLASH_ON_MS);
-    if (i < ALERT_FLASH_COUNT - 1) {
-      tickerEl.classList.remove("ticker--alert-active");
-      await sleep(ALERT_FLASH_OFF_MS);
-    }
-  }
-}
-
-function clearAlertVisuals(tickerEl: HTMLElement): void {
-  tickerEl.classList.remove("ticker--alert-active");
-}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function setAlertVisualActive(tickerEl: HTMLElement, active: boolean): void {
+  tickerEl.classList.toggle("ticker--alert-active", active);
+}
+
+async function runAlertIntro(tickerEl: HTMLElement): Promise<void> {
+  for (let i = 0; i < ALERT_FLASH_COUNT; i++) {
+    setAlertVisualActive(tickerEl, true);
+    await sleep(ALERT_FLASH_ON_MS);
+    if (i < ALERT_FLASH_COUNT - 1) {
+      setAlertVisualActive(tickerEl, false);
+      await sleep(ALERT_FLASH_OFF_MS);
+    }
+  }
+
+  setAlertVisualActive(tickerEl, true);
+}
+
+function clearAlertVisuals(tickerEl: HTMLElement): void {
+  setAlertVisualActive(tickerEl, false);
 }
 
 async function playAlertSound(url: string): Promise<void> {
@@ -58,7 +64,10 @@ async function showAlert(
   `;
 
   const alertEl = alertLayerEl.querySelector(".ticker__alert");
-  if (!alertEl) return;
+  if (!alertEl) {
+    console.warn("Alert element missing after render");
+    return;
+  }
 
   await sleep(30);
   alertEl.classList.add("ticker__alert--visible");
@@ -72,7 +81,6 @@ async function showAlert(
 
   alertLayerEl.hidden = true;
   alertLayerEl.innerHTML = "";
-  clearAlertVisuals(tickerEl);
 }
 
 export function createAlertPlayer(
@@ -87,14 +95,24 @@ export function createAlertPlayer(
     if (processing) return;
     processing = true;
 
-    while (queue.length > 0) {
-      const event = queue.shift()!;
-      tickerPlayer.interruptAndPause();
-      await showAlert(tickerEl, alertLayerEl, event);
-      tickerPlayer.resume();
+    try {
+      while (queue.length > 0) {
+        const event = queue.shift()!;
+        tickerPlayer.interruptAndPause();
+        try {
+          await showAlert(tickerEl, alertLayerEl, event);
+        } catch (error) {
+          console.error("Alert playback failed:", error);
+        } finally {
+          clearAlertVisuals(tickerEl);
+          alertLayerEl.hidden = true;
+          alertLayerEl.innerHTML = "";
+          tickerPlayer.resume();
+        }
+      }
+    } finally {
+      processing = false;
     }
-
-    processing = false;
   }
 
   function enqueue(event: TickerAlertEventRow): void {
@@ -118,5 +136,13 @@ export function subscribeToAlertEvents(
         if (row?.id) onAlert(row);
       }
     )
-    .subscribe();
+    .subscribe((status, err) => {
+      if (status === "SUBSCRIBED") {
+        console.info("Overlay subscribed to ticker alert events");
+      } else if (status === "CHANNEL_ERROR") {
+        console.error("Alert realtime channel error:", err?.message ?? status);
+      } else if (status === "TIMED_OUT") {
+        console.error("Alert realtime subscription timed out");
+      }
+    });
 }
