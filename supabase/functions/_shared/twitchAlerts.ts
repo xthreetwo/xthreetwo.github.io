@@ -32,11 +32,34 @@ export function applyAlertTemplate(
 export const EVENTSUB_SUBSCRIPTIONS: Array<{
   type: string;
   version: string;
-  conditionKey: "broadcaster_user_id" | "to_broadcaster_user_id";
+  buildCondition: (broadcasterId: string) => Record<string, string>;
 }> = [
-  { type: "channel.follow", version: "2", conditionKey: "broadcaster_user_id" },
-  { type: "channel.subscribe", version: "1", conditionKey: "broadcaster_user_id" },
-  { type: "channel.subscription.gift", version: "1", conditionKey: "broadcaster_user_id" },
-  { type: "channel.raid", version: "1", conditionKey: "to_broadcaster_user_id" },
-  { type: "channel.cheer", version: "1", conditionKey: "broadcaster_user_id" },
+  {
+    type: "channel.follow",
+    version: "2",
+    buildCondition: (broadcasterId) => ({
+      broadcaster_user_id: broadcasterId,
+      moderator_user_id: broadcasterId,
+    }),
+  },
+  {
+    type: "channel.subscribe",
+    version: "1",
+    buildCondition: (broadcasterId) => ({ broadcaster_user_id: broadcasterId }),
+  },
+  {
+    type: "channel.subscription.gift",
+    version: "1",
+    buildCondition: (broadcasterId) => ({ broadcaster_user_id: broadcasterId }),
+  },
+  {
+    type: "channel.raid",
+    version: "1",
+    buildCondition: (broadcasterId) => ({ to_broadcaster_user_id: broadcasterId }),
+  },
+  {
+    type: "channel.cheer",
+    version: "1",
+    buildCondition: (broadcasterId) => ({ broadcaster_user_id: broadcasterId }),
+  },
 ];

@@ -59,6 +59,7 @@ import {
   insertTestAlert,
   loadAlertSettings,
   registerTwitchEventSub,
+  formatEventSubRegisterError,
   saveAlertSettings,
   seedAlertSettings,
 } from "../lib/twitchAlertAdmin";
@@ -1391,9 +1392,7 @@ function bindSettingsModal(): void {
     }
 
     if (!reg.ok) {
-      alert(
-        `EventSub registration incomplete. Failed: ${reg.failed?.join(", ") ?? "unknown"}. Check Edge Function logs.`
-      );
+      alert(`EventSub registration incomplete.\n\n${formatEventSubRegisterError(reg)}`);
     } else {
       alert(`Twitch alerts enabled (${reg.created?.length ?? 0} subscriptions).`);
     }

@@ -1,3 +1,4 @@
+import { FunctionsHttpError } from "@supabase/supabase-js";
 import { supabase } from "./supabase";
 import {
   DEFAULT_ALERT_DURATION_MS,
@@ -12,22 +13,74 @@ export async function registerTwitchEventSub(): Promise<{
   ok: boolean;
   created?: string[];
   failed?: string[];
+  failures?: Array<{ type: string; message: string }>;
   error?: string;
 }> {
   const { data, error } = await supabase.functions.invoke("twitch-eventsub-register");
 
   if (error) {
-    console.error("EventSub register failed:", error.message);
-    return { ok: false, error: error.message };
+    let message = error.message;
+
+    if (error instanceof FunctionsHttpError) {
+      try {
+        const body = await error.context.json();
+        if (typeof body?.error === "string") {
+          message = body.error;
+        }
+        if (body && typeof body === "object") {
+          return {
+            ok: false,
+            created: body.created,
+            failed: body.failed,
+            failures: body.failures,
+            error: message,
+          };
+        }
+      } catch {
+        // use default message
+      }
+    }
+
+    console.error("EventSub register failed:", message);
+    return { ok: false, error: message };
   }
 
-  const body = data as { ok?: boolean; created?: string[]; failed?: string[]; error?: string };
+  const body = data as {
+    ok?: boolean;
+    created?: string[];
+    failed?: string[];
+    failures?: Array<{ type: string; message: string }>;
+    error?: string;
+  };
+
   return {
     ok: Boolean(body?.ok),
     created: body?.created,
     failed: body?.failed,
+    failures: body?.failures,
     error: body?.error,
   };
+}
+
+export function formatEventSubRegisterError(result: {
+  ok: boolean;
+  failed?: string[];
+  failures?: Array<{ type: string; message: string }>;
+  error?: string;
+}): string {
+  if (result.error) {
+    return result.error;
+  }
+
+  if (result.failures && result.failures.length > 0) {
+    return result.failures.map((f) => `${f.type}: ${f.message}`).join("\n");
+  }
+
+  if (result.failed && result.failed.length > 0) {
+    return `Failed types: ${result.failed.join(", ")}`;
+  }
+
+  return "Unknown error — check Edge Function logs in Supabase Dashboard.";
 }
 
 export async function seedAlertSettings(userId: string): Promise<void> {

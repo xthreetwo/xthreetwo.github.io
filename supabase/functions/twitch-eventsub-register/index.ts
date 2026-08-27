@@ -2,6 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { EVENTSUB_SUBSCRIPTIONS } from "../_shared/twitchAlerts.ts";
 
 const TWITCH_CLIENT_ID = Deno.env.get("TWITCH_CLIENT_ID") ?? "";
+const TWITCH_EVENTSUB_SECRET = Deno.env.get("TWITCH_EVENTSUB_SECRET") ?? "";
 const TWITCH_TOKEN_URL = "https://id.twitch.tv/oauth2/token";
 const TWITCH_API_BASE = "https://api.twitch.tv/helix";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
@@ -14,6 +15,11 @@ interface TwitchTokenRow {
   access_token: string;
   refresh_token: string;
   expires_at: string;
+}
+
+interface SubscriptionFailure {
+  type: string;
+  message: string;
 }
 
 async function refreshAccessToken(refreshToken: string): Promise<{
@@ -111,16 +117,10 @@ async function deleteSubscription(accessToken: string, subscriptionId: string): 
 async function createSubscription(
   accessToken: string,
   callbackUrl: string,
-  broadcasterId: string,
   type: string,
   version: string,
-  conditionKey: "broadcaster_user_id" | "to_broadcaster_user_id"
-): Promise<string | null> {
-  const condition =
-    conditionKey === "to_broadcaster_user_id"
-      ? { to_broadcaster_user_id: broadcasterId }
-      : { broadcaster_user_id: broadcasterId };
-
+  condition: Record<string, string>
+): Promise<{ id: string | null; error: string | null }> {
   const res = await fetch(`${TWITCH_API_BASE}/eventsub/subscriptions`, {
     method: "POST",
     headers: {
@@ -135,7 +135,7 @@ async function createSubscription(
       transport: {
         method: "webhook",
         callback: callbackUrl,
-        secret: Deno.env.get("TWITCH_EVENTSUB_SECRET") ?? "",
+        secret: TWITCH_EVENTSUB_SECRET,
       },
     }),
   });
@@ -143,27 +143,41 @@ async function createSubscription(
   const data = await res.json().catch(() => null);
 
   if (!res.ok) {
+    const twitchMessage =
+      data?.message ??
+      data?.error ??
+      (Array.isArray(data?.data) ? data.data[0]?.message : undefined) ??
+      `HTTP ${res.status}`;
     console.error("Create subscription failed:", type, data);
-    return null;
+    return { id: null, error: String(twitchMessage) };
   }
 
-  return data?.data?.[0]?.id ?? null;
+  return { id: data?.data?.[0]?.id ?? null, error: null };
+}
+
+function jsonResponse(body: Record<string, unknown>, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
 }
 
 Deno.serve(async (req) => {
   if (req.method !== "POST") {
-    return new Response(JSON.stringify({ error: "Method not allowed" }), {
-      status: 405,
-      headers: { "Content-Type": "application/json" },
-    });
+    return jsonResponse({ error: "Method not allowed" }, 405);
+  }
+
+  if (!TWITCH_CLIENT_ID) {
+    return jsonResponse({ error: "TWITCH_CLIENT_ID secret is not set in Edge Functions" }, 500);
+  }
+
+  if (!TWITCH_EVENTSUB_SECRET) {
+    return jsonResponse({ error: "TWITCH_EVENTSUB_SECRET secret is not set in Edge Functions" }, 500);
   }
 
   const authHeader = req.headers.get("Authorization");
   if (!authHeader) {
-    return new Response(JSON.stringify({ error: "Unauthorized" }), {
-      status: 401,
-      headers: { "Content-Type": "application/json" },
-    });
+    return jsonResponse({ error: "Unauthorized" }, 401);
   }
 
   const userClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
@@ -172,10 +186,7 @@ Deno.serve(async (req) => {
 
   const { data: userData, error: userError } = await userClient.auth.getUser();
   if (userError || !userData.user) {
-    return new Response(JSON.stringify({ error: "Unauthorized" }), {
-      status: 401,
-      headers: { "Content-Type": "application/json" },
-    });
+    return jsonResponse({ error: "Unauthorized" }, 401);
   }
 
   const userId = userData.user.id;
@@ -188,18 +199,12 @@ Deno.serve(async (req) => {
     .maybeSingle();
 
   if (tokenError || !tokenRow) {
-    return new Response(JSON.stringify({ error: "Twitch not connected" }), {
-      status: 400,
-      headers: { "Content-Type": "application/json" },
-    });
+    return jsonResponse({ error: "Twitch not connected" }, 400);
   }
 
   const accessToken = await ensureAccessToken(serviceClient, tokenRow as TwitchTokenRow);
   if (!accessToken) {
-    return new Response(JSON.stringify({ error: "Twitch token refresh failed" }), {
-      status: 400,
-      headers: { "Content-Type": "application/json" },
-    });
+    return jsonResponse({ error: "Twitch token refresh failed — disconnect and reconnect Twitch" }, 400);
   }
 
   const callbackUrl = `${SUPABASE_URL}/functions/v1/twitch-eventsub`;
@@ -214,37 +219,40 @@ Deno.serve(async (req) => {
 
   const created: string[] = [];
   const failed: string[] = [];
+  const failures: SubscriptionFailure[] = [];
 
   for (const sub of EVENTSUB_SUBSCRIPTIONS) {
-    const subscriptionId = await createSubscription(
+    const condition = sub.buildCondition(broadcasterId);
+    const result = await createSubscription(
       accessToken,
       callbackUrl,
-      broadcasterId,
       sub.type,
       sub.version,
-      sub.conditionKey
+      condition
     );
 
-    if (subscriptionId) {
+    if (result.id) {
       created.push(sub.type);
       await serviceClient.from("twitch_event_subscriptions").insert({
         user_id: userId,
-        subscription_id: subscriptionId,
+        subscription_id: result.id,
         subscription_type: sub.type,
         status: "enabled",
       });
     } else {
       failed.push(sub.type);
+      failures.push({
+        type: sub.type,
+        message: result.error ?? "unknown error",
+      });
     }
   }
 
-  return new Response(
-    JSON.stringify({
-      ok: failed.length === 0,
-      created,
-      failed,
-      callbackUrl,
-    }),
-    { status: 200, headers: { "Content-Type": "application/json" } }
-  );
+  return jsonResponse({
+    ok: failed.length === 0,
+    created,
+    failed,
+    failures,
+    callbackUrl,
+  });
 });
