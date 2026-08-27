@@ -18,6 +18,18 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function waitWhilePaused(
+  isCycleActive: (id: number) => boolean,
+  cycleRunId: number,
+  isPaused: () => boolean
+): Promise<boolean> {
+  while (isPaused()) {
+    if (!isCycleActive(cycleRunId)) return false;
+    await sleep(50);
+  }
+  return isCycleActive(cycleRunId);
+}
+
 function setupHorizontalScroll(itemEl: HTMLElement, item: TickerItem): void {
   const track = itemEl.querySelector(".ticker__item-track") as HTMLElement | null;
   const content = itemEl.querySelector(".ticker__item-content") as HTMLElement | null;
@@ -51,11 +63,11 @@ function escapeAttr(text: string): string {
 async function playItem(
   stageEl: HTMLElement,
   item: TickerItem,
-  runId: number,
-  isActive: (id: number) => boolean,
+  itemRunId: number,
+  isItemActive: (id: number) => boolean,
   getActiveItems: () => TickerItem[]
 ): Promise<void> {
-  if (!isActive(runId)) return;
+  if (!isItemActive(itemRunId)) return;
 
   const freshItem = getActiveItems().find((i) => i.id === item.id);
   if (!freshItem) return;
@@ -106,13 +118,13 @@ async function playItem(
   if (!itemEl) return;
 
   await sleep(50);
-  if (!isActive(runId)) return;
+  if (!isItemActive(itemRunId)) return;
 
   itemEl.classList.add("ticker__item--visible");
   setupHorizontalScroll(itemEl as HTMLElement, item);
 
   await sleep(TICKER_ENTER_MS + getItemHoldMs(item));
-  if (!isActive(runId)) return;
+  if (!isItemActive(itemRunId)) return;
 
   itemEl.classList.remove("ticker__item--visible");
   itemEl.classList.add("ticker__item--exit");
@@ -126,8 +138,10 @@ export function showTickerEmpty(stageEl: HTMLElement, message: string): void {
 export async function runTickerCycle(
   stageEl: HTMLElement,
   getActiveItems: () => TickerItem[],
-  runId: number,
-  isActive: (id: number) => boolean,
+  cycleRunId: number,
+  isCycleActive: (id: number) => boolean,
+  isPaused: () => boolean,
+  getItemInterruptId: () => number,
   emptyMessage: string
 ): Promise<void> {
   const items = getActiveItems();
@@ -136,7 +150,9 @@ export async function runTickerCycle(
     return;
   }
 
-  while (isActive(runId)) {
+  while (isCycleActive(cycleRunId)) {
+    if (!(await waitWhilePaused(isCycleActive, cycleRunId, isPaused))) return;
+
     const cycleItems = getActiveItems();
     if (cycleItems.length === 0) {
       showTickerEmpty(stageEl, emptyMessage);
@@ -144,33 +160,68 @@ export async function runTickerCycle(
     }
 
     for (const item of cycleItems) {
-      if (!isActive(runId)) return;
-      await playItem(stageEl, item, runId, isActive, getActiveItems);
+      if (!(await waitWhilePaused(isCycleActive, cycleRunId, isPaused))) return;
+
+      const itemRunId = getItemInterruptId();
+      await playItem(
+        stageEl,
+        item,
+        itemRunId,
+        (id) => id === getItemInterruptId() && isCycleActive(cycleRunId),
+        getActiveItems
+      );
     }
   }
+}
+
+export interface TickerPlayerControls {
+  refresh: () => void;
+  stop: () => void;
+  interruptAndPause: () => void;
+  resume: () => void;
 }
 
 export function createTickerPlayer(
   stageEl: HTMLElement,
   getActiveItems: () => TickerItem[],
   emptyMessage: string
-): { refresh: () => void; stop: () => void } {
-  let cycleId = 0;
-  let activeRunId = 0;
+): TickerPlayerControls {
+  let cycleRunId = 0;
+  let itemInterruptId = 0;
+  let paused = false;
 
-  const isActive = (id: number) => id === activeRunId;
+  const isCycleActive = (id: number) => id === cycleRunId;
+  const isPaused = () => paused;
+  const getItemInterruptId = () => itemInterruptId;
 
   function start(): void {
-    cycleId += 1;
-    activeRunId = cycleId;
-    runTickerCycle(stageEl, getActiveItems, activeRunId, isActive, emptyMessage);
+    cycleRunId += 1;
+    itemInterruptId += 1;
+    paused = false;
+    runTickerCycle(
+      stageEl,
+      getActiveItems,
+      cycleRunId,
+      isCycleActive,
+      isPaused,
+      getItemInterruptId,
+      emptyMessage
+    );
   }
 
   return {
     refresh: start,
     stop: () => {
-      cycleId += 1;
-      activeRunId = cycleId;
+      cycleRunId += 1;
+      itemInterruptId += 1;
+      paused = false;
+    },
+    interruptAndPause: () => {
+      itemInterruptId += 1;
+      paused = true;
+    },
+    resume: () => {
+      paused = false;
     },
   };
 }

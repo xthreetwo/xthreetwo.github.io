@@ -1,0 +1,7 @@
+# Supabase local config (Edge Functions deploy uses project settings)
+
+[functions.twitch-eventsub]
+verify_jwt = false
+
+[functions.twitch-eventsub-register]
+verify_jwt = true

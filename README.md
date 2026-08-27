@@ -103,13 +103,47 @@ Show your current Twitch stream title on the ticker. Updates when you change the
 
 Display format: Twitch icon + `**Your title here**`
 
+## Twitch alerts (follow, sub, gift sub, raid, cheer)
+
+Real-time Twitch alerts on the overlay via EventSub webhooks. The ticker pauses during each alert and resumes rotation without resetting.
+
+### Setup
+
+1. Run migration [`009_twitch_alerts.sql`](supabase/migrations/009_twitch_alerts.sql) in Supabase SQL Editor.
+2. Deploy Edge Functions (Supabase CLI):
+   ```bash
+   supabase functions deploy twitch-eventsub twitch-eventsub-register
+   ```
+3. Set Edge Function secrets in **Supabase Dashboard → Edge Functions → Secrets**:
+   - `TWITCH_CLIENT_ID` — same as your Vite env
+   - `TWITCH_EVENTSUB_SECRET` — random string you choose (also used when creating subscriptions)
+4. In [Twitch Developer Console](https://dev.twitch.tv/console/apps), ensure your app is **Public** and supports EventSub webhooks. The callback URL is:
+   `https://<your-project-ref>.supabase.co/functions/v1/twitch-eventsub`
+5. **Disconnect and reconnect Twitch** in admin after deploying (new OAuth scopes are required).
+
+### Usage
+
+1. Admin → **Connect Twitch** (device activation at [twitch.tv/activate](https://www.twitch.tv/activate)).
+2. Open **Settings** → **Enable alerts** to register EventSub subscriptions.
+3. Customize per-type templates, sounds, and duration in Settings. Use **Test** to fire a sample alert on the overlay.
+4. Overlay does **not** require the admin tab during stream — alerts arrive via Supabase Realtime.
+
+### Streamlabs / OBS audio
+
+1. Browser Source URL: `https://xthreetwo.github.io/overlay.html` (or your Pages URL).
+2. Enable **Control audio via OBS** / browser-source audio in Streamlabs so alert sounds play.
+3. Run a **Test** alert from Settings before going live.
+
+Default sounds live in [`public/sounds/`](public/sounds/) — replace `follow.mp3`, `subscribe.mp3`, etc. with your own clips.
+
 ## OBS Setup
 
 1. In OBS, add a **Browser Source**.
 2. Set URL to `https://xthreetwo.github.io/overlay.html`.
 3. Set Width to `1920` and Height to `65` (ticker sits at the top of the canvas).
 4. The background is transparent by default — no chroma key needed.
-5. Check "Refresh browser when scene becomes active" if you want a clean reload on scene switch.
+5. For Twitch alert sounds, enable browser-source audio (see Twitch alerts section above).
+6. Check "Refresh browser when scene becomes active" if you want a clean reload on scene switch.
 
 ## Display time
 

@@ -47,11 +47,30 @@ import {
   isTwitchTokenExpired,
   refreshTwitchAccessToken,
   twitchExpiresAt,
+  twitchHasRequiredScopes,
+  twitchRequiredScopes,
   validateTwitchToken,
   fetchChannelTitle,
   type TwitchDeviceCodeResponse,
   type TwitchTokenResponse,
 } from "../lib/twitch";
+import {
+  countEventSubscriptions,
+  insertTestAlert,
+  loadAlertSettings,
+  registerTwitchEventSub,
+  saveAlertSettings,
+  seedAlertSettings,
+} from "../lib/twitchAlertAdmin";
+import {
+  DEFAULT_ALERT_DURATION_MS,
+  DEFAULT_ALERT_TEMPLATES,
+  TWITCH_ALERT_TYPES,
+  type TickerAlertSettingsRow,
+  type TwitchAlertType,
+  defaultAlertSoundUrl,
+  formatAlertLabel,
+} from "../shared/twitchAlerts";
 import type { Session } from "@supabase/supabase-js";
 import {
   applyTickerAccent,
@@ -72,9 +91,11 @@ interface TwitchTokenRow {
   access_token: string;
   refresh_token: string;
   expires_at: string;
+  scopes: string | null;
 }
 
 const SPOTIFY_POLL_MS = 5000;
+const ALERT_DURATION_OPTIONS = [3000, 5000, 8000, 10000];
 const TWITCH_POLL_MS = 300000;
 
 const app = document.getElementById("app")!;
@@ -94,6 +115,8 @@ let twitchDeviceAuth: TwitchDeviceCodeResponse | null = null;
 let twitchDevicePollTimer: ReturnType<typeof setInterval> | null = null;
 let tickerAccentColor = DEFAULT_TICKER_ACCENT;
 let showSettingsModal = false;
+let alertSettingsDraft: TickerAlertSettingsRow[] = [];
+let eventSubCount = 0;
 
 // --- Auth ---
 
@@ -505,26 +528,37 @@ async function loadTwitchTokens(): Promise<void> {
 
   const { data, error } = await supabase
     .from("twitch_tokens")
-    .select("broadcaster_id, access_token, refresh_token, expires_at")
+    .select("broadcaster_id, access_token, refresh_token, expires_at, scopes")
     .eq("user_id", session.user.id)
     .maybeSingle();
 
   if (error) {
     console.error("Failed to load Twitch tokens:", error.message);
     twitchTokens = null;
+    eventSubCount = 0;
     return;
   }
 
   twitchTokens = data ?? null;
+
+  if (twitchTokens && session.user) {
+    await seedAlertSettings(session.user.id);
+    eventSubCount = await countEventSubscriptions(session.user.id);
+  } else {
+    eventSubCount = 0;
+  }
 }
 
 async function saveTwitchTokens(
   accessToken: string,
   refreshToken: string,
   expiresAt: string,
-  broadcasterId: string
+  broadcasterId: string,
+  scopes?: string | null
 ): Promise<boolean> {
   if (!session?.user) return false;
+
+  const scopesValue = scopes ?? twitchTokens?.scopes ?? null;
 
   const { error } = await supabase.from("twitch_tokens").upsert({
     user_id: session.user.id,
@@ -532,6 +566,7 @@ async function saveTwitchTokens(
     access_token: accessToken,
     refresh_token: refreshToken,
     expires_at: expiresAt,
+    scopes: scopesValue,
   });
 
   if (error) {
@@ -544,6 +579,7 @@ async function saveTwitchTokens(
     access_token: accessToken,
     refresh_token: refreshToken,
     expires_at: expiresAt,
+    scopes: scopesValue,
   };
 
   return true;
@@ -613,16 +649,27 @@ async function completeTwitchDeviceAuth(tokenResponse: TwitchTokenResponse): Pro
     return;
   }
 
+  const scopes = validated.scopes.join(" ");
   const saved = await saveTwitchTokens(
     tokenResponse.access_token,
     refreshToken,
     twitchExpiresAt(tokenResponse.expires_in),
-    validated.user_id
+    validated.user_id,
+    scopes
   );
 
   if (!saved) {
     renderDashboard();
     return;
+  }
+
+  if (session?.user) {
+    await seedAlertSettings(session.user.id);
+    const reg = await registerTwitchEventSub();
+    if (!reg.ok) {
+      console.warn("Twitch EventSub registration incomplete:", reg);
+    }
+    eventSubCount = await countEventSubscriptions(session.user.id);
   }
 
   renderDashboard();
@@ -688,7 +735,8 @@ async function ensureTwitchAccessToken(): Promise<string | null> {
     refreshed.access_token,
     refreshToken,
     expiresAt,
-    twitchTokens.broadcaster_id
+    twitchTokens.broadcaster_id,
+    twitchTokens.scopes
   );
   if (!saved) return null;
 
@@ -1131,6 +1179,114 @@ function updateAcrallyAddPreview(): void {
   previewEl.innerHTML = `<span class="ticker-preview-text">${renderHighlights(text)}</span>`;
 }
 
+function renderAlertDurationSelect(id: string, durationMs: number): string {
+  const options = ALERT_DURATION_OPTIONS.map((ms) => {
+    const label = ms >= 1000 ? `${ms / 1000}s` : `${ms}ms`;
+    const selected = ms === durationMs ? " selected" : "";
+    return `<option value="${ms}"${selected}>${label}</option>`;
+  });
+
+  return `<select id="${id}">${options.join("")}</select>`;
+}
+
+function twitchAlertsStatusText(): string {
+  if (!twitchTokens) return "";
+
+  const scopesOk = twitchHasRequiredScopes(twitchTokens.scopes);
+  const subsOk = eventSubCount >= TWITCH_ALERT_TYPES.length;
+
+  if (!scopesOk) {
+    return `Reconnect Twitch to grant alert scopes (${twitchRequiredScopes().join(", ")}).`;
+  }
+
+  if (!subsOk) {
+    return `EventSub not fully registered (${eventSubCount}/${TWITCH_ALERT_TYPES.length}). Click Enable alerts.`;
+  }
+
+  return `Twitch alerts active (${eventSubCount} EventSub subscriptions).`;
+}
+
+function renderAlertSettingsMarkup(): string {
+  if (!twitchTokens) return "";
+
+  const status = twitchAlertsStatusText();
+  const scopesOk = twitchHasRequiredScopes(twitchTokens.scopes);
+  const subsOk = eventSubCount >= TWITCH_ALERT_TYPES.length;
+
+  const rows = TWITCH_ALERT_TYPES.map((alertType) => {
+    const setting =
+      alertSettingsDraft.find((row) => row.alert_type === alertType) ?? {
+        user_id: session?.user?.id ?? "",
+        alert_type: alertType,
+        enabled: true,
+        template: DEFAULT_ALERT_TEMPLATES[alertType],
+        sound_url: defaultAlertSoundUrl(alertType),
+        duration_ms: DEFAULT_ALERT_DURATION_MS,
+      };
+
+    return `
+      <div class="alert-settings-card" data-alert-type="${alertType}">
+        <div class="alert-settings-card__header">
+          <label class="alert-settings-card__toggle">
+            <input type="checkbox" id="alert-enabled-${alertType}" ${setting.enabled ? "checked" : ""} />
+            <span>${escapeHtml(formatAlertLabel(alertType))}</span>
+          </label>
+          <button type="button" class="btn btn--sm btn--ghost" id="alert-test-${alertType}">Test</button>
+        </div>
+        <div class="form-group">
+          <label for="alert-template-${alertType}">Template</label>
+          <textarea id="alert-template-${alertType}" rows="2" spellcheck="false">${escapeHtml(setting.template)}</textarea>
+          <p class="syntax-help">Variables: <code>{user}</code> <code>{tier}</code> <code>{total}</code> <code>{viewers}</code> <code>{bits}</code> <code>{message}</code></p>
+        </div>
+        <div class="form-group">
+          <label for="alert-sound-${alertType}">Sound URL</label>
+          <input type="text" id="alert-sound-${alertType}" value="${escapeHtml(setting.sound_url)}" spellcheck="false" />
+        </div>
+        <div class="form-group">
+          <label for="alert-duration-${alertType}">Duration</label>
+          ${renderAlertDurationSelect(`alert-duration-${alertType}`, setting.duration_ms)}
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  return `
+    <div class="settings-section">
+      <h3 class="settings-section__title">Twitch alerts</h3>
+      <p class="syntax-help settings-section__intro">
+        Real-time follow, sub, gift sub, raid, and cheer alerts on the overlay.
+        Enable browser-source audio in Streamlabs/OBS so sounds play.
+      </p>
+      <p class="alert-settings-status ${subsOk && scopesOk ? "alert-settings-status--ok" : "alert-settings-status--warn"}">${escapeHtml(status)}</p>
+      <div class="form-actions alert-settings-actions">
+        <button type="button" id="twitch-enable-alerts-btn" class="btn btn--sm btn--twitch">Enable alerts</button>
+      </div>
+      <div class="alert-settings-list">${rows}</div>
+    </div>
+  `;
+}
+
+function collectAlertSettingsFromDom(): TickerAlertSettingsRow[] {
+  const userId = session?.user?.id;
+  if (!userId) return [];
+
+  return TWITCH_ALERT_TYPES.map((alertType) => {
+    const enabledEl = document.getElementById(`alert-enabled-${alertType}`) as HTMLInputElement | null;
+    const templateEl = document.getElementById(`alert-template-${alertType}`) as HTMLTextAreaElement | null;
+    const soundEl = document.getElementById(`alert-sound-${alertType}`) as HTMLInputElement | null;
+    const durationEl = document.getElementById(`alert-duration-${alertType}`) as HTMLSelectElement | null;
+
+    return {
+      user_id: userId,
+      alert_type: alertType,
+      enabled: enabledEl?.checked ?? true,
+      template: templateEl?.value.trim() ?? "",
+      sound_url: soundEl?.value.trim() ?? `/sounds/${alertType}.mp3`,
+      duration_ms: Number(durationEl?.value ?? 5000),
+    };
+  });
+}
+
 function renderSettingsModalMarkup(): string {
   if (!showSettingsModal) return "";
 
@@ -1161,6 +1317,7 @@ function renderSettingsModalMarkup(): string {
           <button type="button" id="settings-save-btn" class="btn btn--primary">Save</button>
           <button type="button" id="settings-cancel-btn" class="btn btn--ghost">Cancel</button>
         </div>
+        ${renderAlertSettingsMarkup()}
       </div>
     </div>
   `;
@@ -1200,17 +1357,64 @@ function bindSettingsModal(): void {
 
   document.getElementById("settings-save-btn")?.addEventListener("click", async () => {
     const hex = hexInput?.value ?? tickerAccentColor;
-    const saved = await saveTickerAccent(hex);
+    const savedAccent = await saveTickerAccent(hex);
 
-    if (!saved) {
+    if (!savedAccent) {
       alert("Enter a valid hex color (e.g. #ff5b20).");
       return;
     }
 
-    tickerAccentColor = saved;
+    tickerAccentColor = savedAccent;
+
+    if (twitchTokens && session?.user) {
+      const settings = collectAlertSettingsFromDom();
+      const savedAlerts = await saveAlertSettings(session.user.id, settings);
+      if (!savedAlerts) return;
+      alertSettingsDraft = settings;
+    }
+
     showSettingsModal = false;
     renderDashboard();
   });
+
+  document.getElementById("twitch-enable-alerts-btn")?.addEventListener("click", async () => {
+    if (!twitchTokens) return;
+
+    if (!twitchHasRequiredScopes(twitchTokens.scopes)) {
+      alert("Disconnect and reconnect Twitch to grant the required alert scopes.");
+      return;
+    }
+
+    const reg = await registerTwitchEventSub();
+    if (session?.user) {
+      eventSubCount = await countEventSubscriptions(session.user.id);
+    }
+
+    if (!reg.ok) {
+      alert(
+        `EventSub registration incomplete. Failed: ${reg.failed?.join(", ") ?? "unknown"}. Check Edge Function logs.`
+      );
+    } else {
+      alert(`Twitch alerts enabled (${reg.created?.length ?? 0} subscriptions).`);
+    }
+
+    renderDashboard();
+  });
+
+  for (const alertType of TWITCH_ALERT_TYPES) {
+    document.getElementById(`alert-test-${alertType}`)?.addEventListener("click", async () => {
+      if (!session?.user) return;
+
+      const settings = collectAlertSettingsFromDom();
+      const row = settings.find((setting) => setting.alert_type === alertType);
+      if (!row) return;
+
+      const ok = await insertTestAlert(session.user.id, alertType as TwitchAlertType, row);
+      if (ok) {
+        alert(`Test ${formatAlertLabel(alertType)} alert sent to overlay.`);
+      }
+    });
+  }
 }
 
 function renderDashboard(): void {
@@ -1304,8 +1508,15 @@ function renderDashboard(): void {
 
   document.getElementById("logout-btn")!.addEventListener("click", handleLogout);
 
-  document.getElementById("settings-btn")?.addEventListener("click", () => {
+  document.getElementById("settings-btn")?.addEventListener("click", async () => {
     showSettingsModal = true;
+
+    if (session?.user && twitchTokens) {
+      await seedAlertSettings(session.user.id);
+      alertSettingsDraft = await loadAlertSettings(session.user.id);
+      eventSubCount = await countEventSubscriptions(session.user.id);
+    }
+
     renderDashboard();
   });
 

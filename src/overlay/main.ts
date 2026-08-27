@@ -1,13 +1,15 @@
 import "./overlay.css";
 import { supabase } from "../lib/supabase";
+import { createAlertPlayer, subscribeToAlertEvents } from "../lib/alertPlayer";
 import { createTickerPlayer } from "../lib/tickerPlayer";
 import { applyTickerAccent, fetchTickerAccent } from "../lib/tickerTheme";
 import type { TickerItem } from "../shared/types";
 
 const stageEl = document.getElementById("ticker-stage");
+const alertLayerEl = document.getElementById("ticker-alert-layer");
 
-if (!stageEl) {
-  throw new Error("Ticker stage element not found");
+if (!stageEl || !alertLayerEl) {
+  throw new Error("Ticker overlay elements not found");
 }
 
 let items: TickerItem[] = [];
@@ -17,6 +19,8 @@ const player = createTickerPlayer(
   () => items,
   "No ticker items — add some in the admin panel"
 );
+
+const alertPlayer = createAlertPlayer(alertLayerEl, player);
 
 async function fetchItems(): Promise<TickerItem[]> {
   const { data, error } = await supabase
@@ -40,7 +44,6 @@ async function syncItemsFromDatabase(): Promise<void> {
 
   items = newItems;
 
-  // Only restart the cycle when crossing empty ↔ non-empty (stuck empty state otherwise).
   if ((!hadItems && hasItems) || (hadItems && !hasItems)) {
     player.refresh();
   }
@@ -51,6 +54,8 @@ async function init(): Promise<void> {
 
   items = await fetchItems();
   player.refresh();
+
+  subscribeToAlertEvents((event) => alertPlayer.enqueue(event));
 
   supabase
     .channel("ticker_items_changes")

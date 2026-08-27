@@ -51,6 +51,7 @@ export type Database = {
           access_token: string;
           refresh_token: string;
           expires_at: string;
+          scopes: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -60,12 +61,83 @@ export type Database = {
           access_token: string;
           refresh_token: string;
           expires_at: string;
+          scopes?: string | null;
         };
         Update: Partial<{
           broadcaster_id: string;
           access_token: string;
           refresh_token: string;
           expires_at: string;
+          scopes: string | null;
+        }>;
+      };
+      ticker_alert_settings: {
+        Row: {
+          user_id: string;
+          alert_type: string;
+          enabled: boolean;
+          template: string;
+          sound_url: string;
+          duration_ms: number;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          user_id: string;
+          alert_type: string;
+          enabled?: boolean;
+          template: string;
+          sound_url: string;
+          duration_ms?: number;
+        };
+        Update: Partial<{
+          enabled: boolean;
+          template: string;
+          sound_url: string;
+          duration_ms: number;
+        }>;
+      };
+      ticker_alert_events: {
+        Row: {
+          id: string;
+          user_id: string;
+          alert_type: string;
+          display_text: string;
+          sound_url: string;
+          duration_ms: number;
+          created_at: string;
+        };
+        Insert: {
+          user_id: string;
+          alert_type: string;
+          display_text: string;
+          sound_url: string;
+          duration_ms?: number;
+        };
+        Update: Partial<{
+          display_text: string;
+          sound_url: string;
+          duration_ms: number;
+        }>;
+      };
+      twitch_event_subscriptions: {
+        Row: {
+          id: string;
+          user_id: string;
+          subscription_id: string;
+          subscription_type: string;
+          status: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          user_id: string;
+          subscription_id: string;
+          subscription_type: string;
+          status?: string;
+        };
+        Update: Partial<{
+          status: string;
         }>;
       };
     };

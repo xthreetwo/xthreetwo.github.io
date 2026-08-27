@@ -111,9 +111,64 @@ body {
 }
 
 .ticker__stage {
-  position: relative;
+  position: absolute;
+  inset: 0;
   height: 100%;
   overflow: hidden;
+}
+
+.ticker__alert-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.ticker__alert-layer[hidden] {
+  display: none;
+}
+
+.ticker__alert {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 100%;
+  transform: translateY(-100%);
+  opacity: 0;
+  transition:
+    transform 0.4s ease,
+    opacity 0.4s ease;
+}
+
+.ticker__alert--visible {
+  transform: translateY(0);
+  opacity: 1;
+}
+
+.ticker__alert--exit {
+  transform: translateY(100%);
+  opacity: 0;
+}
+
+.ticker__alert-track {
+  height: 100%;
+  overflow: hidden;
+  padding: 0 var(--ticker-item-padding-right) 0 var(--ticker-item-padding-left);
+  display: flex;
+  align-items: center;
+  background: var(--ticker-bg);
+}
+
+.ticker__alert-content {
+  color: var(--ticker-text);
+  font-family: var(--ticker-font);
+  font-size: var(--ticker-item-size);
+  font-weight: 400;
+  letter-spacing: -0.04em;
+  line-height: var(--ticker-height);
+  white-space: nowrap;
+  display: inline-block;
 }
 
 .ticker__item {

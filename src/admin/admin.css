@@ -150,12 +150,75 @@ body {
 .settings-modal__panel {
   position: relative;
   width: 100%;
-  max-width: 28rem;
+  max-width: 42rem;
+  max-height: 90vh;
+  overflow: auto;
   background: var(--admin-surface);
   border: 1px solid var(--admin-border);
   border-radius: var(--admin-radius);
   padding: 1.25rem;
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
+}
+
+.settings-section {
+  margin-top: 1.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--admin-border);
+}
+
+.settings-section__title {
+  font-size: 0.95rem;
+  margin-bottom: 0.5rem;
+}
+
+.settings-section__intro {
+  margin-bottom: 0.75rem;
+}
+
+.alert-settings-status {
+  font-size: 0.85rem;
+  margin-bottom: 0.75rem;
+}
+
+.alert-settings-status--ok {
+  color: #6ee7a0;
+}
+
+.alert-settings-status--warn {
+  color: #fbbf24;
+}
+
+.alert-settings-actions {
+  margin-bottom: 1rem;
+}
+
+.alert-settings-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.alert-settings-card {
+  padding: 0.85rem;
+  border: 1px solid var(--admin-border);
+  border-radius: var(--admin-radius);
+  background: var(--admin-bg);
+}
+
+.alert-settings-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.alert-settings-card__toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+  font-size: 0.9rem;
 }
 
 .settings-modal__panel h2 {

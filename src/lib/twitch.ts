@@ -39,8 +39,20 @@ export function isTwitchConfigured(): boolean {
 }
 
 function twitchDeviceScopes(): string {
-  // Get Channel Information does not require scopes; public clients use device flow.
-  return "";
+  return [
+    "moderator:read:followers",
+    "channel:read:subscriptions",
+    "bits:read",
+  ].join(" ");
+}
+
+export function twitchRequiredScopes(): string[] {
+  return twitchDeviceScopes().split(" ").filter(Boolean);
+}
+
+export function twitchHasRequiredScopes(scopes: string | null | undefined): boolean {
+  const granted = (scopes ?? "").split(/\s+/).filter(Boolean);
+  return twitchRequiredScopes().every((scope) => granted.includes(scope));
 }
 
 export async function requestTwitchDeviceCode(): Promise<TwitchDeviceCodeResponse | null> {
