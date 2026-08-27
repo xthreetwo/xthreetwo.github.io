@@ -1,6 +1,7 @@
 import "./overlay.css";
 import { supabase } from "../lib/supabase";
 import { createTickerPlayer } from "../lib/tickerPlayer";
+import { applyTickerAccent, fetchTickerAccent } from "../lib/tickerTheme";
 import type { TickerItem } from "../shared/types";
 
 const stageEl = document.getElementById("ticker-stage");
@@ -46,6 +47,8 @@ async function syncItemsFromDatabase(): Promise<void> {
 }
 
 async function init(): Promise<void> {
+  await fetchTickerAccent();
+
   items = await fetchItems();
   player.refresh();
 
@@ -55,6 +58,18 @@ async function init(): Promise<void> {
       "postgres_changes",
       { event: "*", schema: "public", table: "ticker_items" },
       () => syncItemsFromDatabase()
+    )
+    .subscribe();
+
+  supabase
+    .channel("ticker_settings_changes")
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "ticker_settings" },
+      (payload) => {
+        const accent = (payload.new as { accent_color?: string } | null)?.accent_color;
+        if (accent) applyTickerAccent(accent);
+      }
     )
     .subscribe();
 }

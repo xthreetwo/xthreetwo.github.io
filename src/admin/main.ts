@@ -25,6 +25,8 @@ import {
   getDefaultAcrallyStage,
   renderAcrallyStageOptions,
 } from "../shared/acrallyStages";
+import { renderDisconnectIconMarkup } from "../shared/disconnectIcon";
+import { renderSpotifyIconMarkup } from "../shared/spotifyIcon";
 import { renderTwitchIconMarkup } from "../shared/twitchIcon";
 import {
   clearSpotifyCallbackParams,
@@ -51,6 +53,13 @@ import {
   type TwitchTokenResponse,
 } from "../lib/twitch";
 import type { Session } from "@supabase/supabase-js";
+import {
+  applyTickerAccent,
+  DEFAULT_TICKER_ACCENT,
+  fetchTickerAccent,
+  normalizeHexColor,
+  saveTickerAccent,
+} from "../lib/tickerTheme";
 
 interface SpotifyTokenRow {
   access_token: string;
@@ -83,10 +92,14 @@ let twitchTokens: TwitchTokenRow | null = null;
 let twitchPollTimer: ReturnType<typeof setInterval> | null = null;
 let twitchDeviceAuth: TwitchDeviceCodeResponse | null = null;
 let twitchDevicePollTimer: ReturnType<typeof setInterval> | null = null;
+let tickerAccentColor = DEFAULT_TICKER_ACCENT;
+let showSettingsModal = false;
 
 // --- Auth ---
 
 async function init(): Promise<void> {
+  await loadTickerAccent();
+
   const { data } = await supabase.auth.getSession();
   session = data.session;
 
@@ -176,6 +189,10 @@ async function loadItems(): Promise<void> {
   }
 
   items = data ?? [];
+}
+
+async function loadTickerAccent(): Promise<void> {
+  tickerAccentColor = await fetchTickerAccent();
 }
 
 function nextSortOrder(): number {
@@ -406,7 +423,7 @@ async function setMusicItemActive(id: string, active: boolean): Promise<boolean>
     const toggle = card.querySelector(".toggle-active") as HTMLInputElement | null;
     if (toggle) toggle.checked = active;
 
-    const meta = card.querySelector(".item-card__meta--music");
+    const meta = card.querySelector(".item-card__meta");
     if (meta) {
       const holdPart = formatHoldLabel(item.hold_seconds);
       const suppressed = musicAutoSyncSuppressedIds.has(id);
@@ -414,8 +431,8 @@ async function setMusicItemActive(id: string, active: boolean): Promise<boolean>
         ? suppressed
           ? "Paused for this session"
           : "Auto on when music plays"
-        : "Connect Spotify above to sync now playing";
-      meta.textContent = `${statusNote} · Display: ${holdPart} · ${active ? "Active" : "Inactive"}`;
+        : "Connect Spotify to sync";
+      meta.textContent = `${statusNote} · Display: ${holdPart}`;
     }
   }
 
@@ -716,11 +733,19 @@ function stopTwitchPoller(): void {
   }
 }
 
+function renderSpotifyBrandMarkup(): string {
+  return `<span class="spotify-panel__brand" aria-label="Spotify" title="Spotify">${renderSpotifyIconMarkup("spotify-panel__icon")}</span>`;
+}
+
+function renderTwitchBrandMarkup(): string {
+  return `<span class="twitch-panel__brand" aria-label="Twitch" title="Twitch">${renderTwitchIconMarkup("twitch-panel__icon")}</span>`;
+}
+
 function renderTwitchStatusMarkup(): string {
   if (!isTwitchConfigured()) {
     return `
       <div class="twitch-panel twitch-panel--disabled">
-        <span class="twitch-panel__label">Twitch</span>
+        ${renderTwitchBrandMarkup()}
         <span class="twitch-panel__status">Add VITE_TWITCH_CLIENT_ID to enable</span>
       </div>
     `;
@@ -732,7 +757,7 @@ function renderTwitchStatusMarkup(): string {
 
     return `
       <div class="twitch-panel twitch-panel--device">
-        <span class="twitch-panel__label">Twitch</span>
+        ${renderTwitchBrandMarkup()}
         <span class="twitch-panel__status">Enter code <strong>${escapeHtml(userCode)}</strong> at
           <a href="${escapeHtml(activateUrl)}" target="_blank" rel="noopener noreferrer">twitch.tv/activate</a>
         </span>
@@ -743,14 +768,16 @@ function renderTwitchStatusMarkup(): string {
 
   const connected = Boolean(twitchTokens);
   const statusText = connected ? "Connected" : "Not connected";
-  const buttonLabel = connected ? "Disconnect Twitch" : "Connect Twitch";
-  const buttonId = connected ? "twitch-disconnect-btn" : "twitch-connect-btn";
+
+  const actionButton = connected
+    ? `<button type="button" id="twitch-disconnect-btn" class="btn btn--disconnect" aria-label="Disconnect Twitch" title="Disconnect Twitch">${renderDisconnectIconMarkup()}</button>`
+    : `<button type="button" id="twitch-connect-btn" class="btn btn--sm btn--twitch">Connect</button>`;
 
   return `
     <div class="twitch-panel ${connected ? "twitch-panel--connected" : ""}">
-      <span class="twitch-panel__label">Twitch</span>
+      ${renderTwitchBrandMarkup()}
       <span class="twitch-panel__status">${statusText}</span>
-      <button type="button" id="${buttonId}" class="btn btn--sm ${connected ? "btn--ghost" : "btn--twitch"}">${buttonLabel}</button>
+      ${actionButton}
     </div>
   `;
 }
@@ -921,7 +948,7 @@ function renderSpotifyStatusMarkup(): string {
   if (!isSpotifyConfigured()) {
     return `
       <div class="spotify-panel spotify-panel--disabled">
-        <span class="spotify-panel__label">Spotify</span>
+        ${renderSpotifyBrandMarkup()}
         <span class="spotify-panel__status">Add VITE_SPOTIFY_CLIENT_ID to enable</span>
       </div>
     `;
@@ -929,14 +956,16 @@ function renderSpotifyStatusMarkup(): string {
 
   const connected = Boolean(spotifyTokens);
   const statusText = connected ? "Connected" : "Not connected";
-  const buttonLabel = connected ? "Disconnect Spotify" : "Connect Spotify";
-  const buttonId = connected ? "spotify-disconnect-btn" : "spotify-connect-btn";
+
+  const actionButton = connected
+    ? `<button type="button" id="spotify-disconnect-btn" class="btn btn--disconnect" aria-label="Disconnect Spotify" title="Disconnect Spotify">${renderDisconnectIconMarkup()}</button>`
+    : `<button type="button" id="spotify-connect-btn" class="btn btn--sm btn--music">Connect</button>`;
 
   return `
     <div class="spotify-panel ${connected ? "spotify-panel--connected" : ""}">
-      <span class="spotify-panel__label">Spotify</span>
+      ${renderSpotifyBrandMarkup()}
       <span class="spotify-panel__status">${statusText}</span>
-      <button type="button" id="${buttonId}" class="btn btn--sm ${connected ? "btn--ghost" : "btn--music"}">${buttonLabel}</button>
+      ${actionButton}
     </div>
   `;
 }
@@ -1008,17 +1037,81 @@ function renderStageSelect(id: string, selected?: string): string {
   return `<select id="${id}" class="stage-select">${renderStageOptionsMarkup(selected)}</select>`;
 }
 
-function renderAddFormButtons(): string {
-  if (showAddForm || showAddAcrallyForm) return "";
+function renderSectionHeaderActions(): string {
+  const previewBtn = `<a href="/overlay.html" target="_blank" rel="noopener noreferrer" class="btn btn--secondary">Preview Overlay</a>`;
+
+  if (showAddForm || showAddAcrallyForm) {
+    return `<div class="section-header__actions">${previewBtn}</div>`;
+  }
 
   return `
     <div class="section-header__actions">
-      <button type="button" id="show-add-btn" class="btn btn--success">Add Item</button>
-      <button type="button" id="show-add-acrally-btn" class="btn btn--acrally">Add AC Rally Item</button>
-      <button type="button" id="show-add-music-btn" class="btn btn--music">Add Music Item</button>
-      <button type="button" id="show-add-stream-title-btn" class="btn btn--twitch">Add Stream Title Item</button>
+      ${previewBtn}
+      <details class="add-dropdown" id="add-dropdown">
+        <summary class="btn btn--success add-dropdown__summary">
+          Add item
+          <span class="material-icons add-dropdown__chevron" aria-hidden="true">expand_more</span>
+        </summary>
+        <div class="add-dropdown__menu">
+          <button type="button" class="add-dropdown__option" data-add-type="custom">
+            <span class="add-dropdown__option-title">Custom text</span>
+            <span class="add-dropdown__option-desc">Manual ticker message</span>
+          </button>
+          <button type="button" class="add-dropdown__option add-dropdown__option--acrally" data-add-type="acrally">
+            <span class="add-dropdown__option-title">AC Rally</span>
+            <span class="add-dropdown__option-desc">Stage and rank display</span>
+          </button>
+          <button type="button" class="add-dropdown__option add-dropdown__option--music" data-add-type="music">
+            <span class="add-dropdown__option-title">Now Playing</span>
+            <span class="add-dropdown__option-desc">Spotify sync</span>
+          </button>
+          <button type="button" class="add-dropdown__option add-dropdown__option--twitch" data-add-type="stream-title">
+            <span class="add-dropdown__option-title">Stream Title</span>
+            <span class="add-dropdown__option-desc">Twitch sync</span>
+          </button>
+        </div>
+      </details>
     </div>
   `;
+}
+
+function renderItemToolbarMarkup(item: TickerItem): string {
+  return `
+    <div class="item-card__toolbar">
+      <label class="switch" title="Active" aria-label="Toggle active">
+        <input type="checkbox" class="toggle-active" ${item.active ? "checked" : ""} />
+        <span class="switch__track"></span>
+      </label>
+      <button type="button" class="btn btn--icon-action edit-btn" aria-label="Edit" title="Edit">
+        <span class="material-icons" aria-hidden="true">edit</span>
+      </button>
+      <button type="button" class="btn btn--icon-action btn--icon-action--danger delete-btn" aria-label="Delete" title="Delete">
+        <span class="material-icons" aria-hidden="true">delete_outline</span>
+      </button>
+    </div>
+  `;
+}
+
+function renderItemCardHeader(
+  item: TickerItem,
+  chipHtml: string | null = null,
+  metaParts: string[] = []
+): string {
+  const metaHtml = metaParts.length > 0 ? renderItemMeta(metaParts) : "";
+
+  return `
+    <div class="item-card__header">
+      <div class="item-card__header-main">
+        ${chipHtml ? `<div class="item-card__chips">${chipHtml}</div>` : ""}
+        ${metaHtml}
+      </div>
+      <div class="item-card__actions">${renderItemToolbarMarkup(item)}</div>
+    </div>
+  `;
+}
+
+function renderItemMeta(parts: string[]): string {
+  return `<div class="item-card__meta">${parts.join(" · ")}</div>`;
 }
 
 function updateAcrallyAddPreview(): void {
@@ -1038,6 +1131,88 @@ function updateAcrallyAddPreview(): void {
   previewEl.innerHTML = `<span class="ticker-preview-text">${renderHighlights(text)}</span>`;
 }
 
+function renderSettingsModalMarkup(): string {
+  if (!showSettingsModal) return "";
+
+  return `
+    <div class="settings-modal" id="settings-modal">
+      <button type="button" class="settings-modal__backdrop" id="settings-modal-backdrop" aria-label="Close settings"></button>
+      <div class="settings-modal__panel" role="dialog" aria-modal="true" aria-labelledby="settings-modal-title">
+        <h2 id="settings-modal-title">Settings</h2>
+        <div class="form-group">
+          <label for="accent-color-hex">Accent color</label>
+          <div class="settings-color-row">
+            <input type="color" id="accent-color-picker" value="${escapeHtml(tickerAccentColor)}" />
+            <input
+              type="text"
+              id="accent-color-hex"
+              value="${escapeHtml(tickerAccentColor)}"
+              placeholder="#ff5b20"
+              spellcheck="false"
+              autocomplete="off"
+            />
+          </div>
+          <p class="syntax-help">Used for <code>**accent**</code> highlights in ticker text.</p>
+          <div class="preview-box settings-accent-preview" id="settings-accent-preview">
+            <span class="ticker-preview-text">${renderHighlights("**Accent preview** on your ticker")}</span>
+          </div>
+        </div>
+        <div class="form-actions">
+          <button type="button" id="settings-save-btn" class="btn btn--primary">Save</button>
+          <button type="button" id="settings-cancel-btn" class="btn btn--ghost">Cancel</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function bindSettingsModal(): void {
+  if (!showSettingsModal) return;
+
+  const picker = document.getElementById("accent-color-picker") as HTMLInputElement | null;
+  const hexInput = document.getElementById("accent-color-hex") as HTMLInputElement | null;
+
+  const closeSettings = (): void => {
+    showSettingsModal = false;
+    applyTickerAccent(tickerAccentColor);
+    renderDashboard();
+  };
+
+  const syncAccentInputs = (hex: string): void => {
+    const normalized = normalizeHexColor(hex);
+    if (!normalized || !picker || !hexInput) return;
+
+    picker.value = normalized;
+    hexInput.value = normalized;
+    applyTickerAccent(normalized);
+  };
+
+  if (picker) {
+    picker.addEventListener("input", () => syncAccentInputs(picker.value));
+  }
+
+  if (hexInput) {
+    hexInput.addEventListener("input", () => syncAccentInputs(hexInput.value));
+  }
+
+  document.getElementById("settings-modal-backdrop")?.addEventListener("click", closeSettings);
+  document.getElementById("settings-cancel-btn")?.addEventListener("click", closeSettings);
+
+  document.getElementById("settings-save-btn")?.addEventListener("click", async () => {
+    const hex = hexInput?.value ?? tickerAccentColor;
+    const saved = await saveTickerAccent(hex);
+
+    if (!saved) {
+      alert("Enter a valid hex color (e.g. #ff5b20).");
+      return;
+    }
+
+    tickerAccentColor = saved;
+    showSettingsModal = false;
+    renderDashboard();
+  });
+}
+
 function renderDashboard(): void {
   stopSpotifyPoller();
   stopTwitchPoller();
@@ -1048,15 +1223,19 @@ function renderDashboard(): void {
       <div class="admin-header__actions">
         ${renderSpotifyStatusMarkup()}
         ${renderTwitchStatusMarkup()}
-        <a href="/overlay.html" target="_blank" rel="noopener noreferrer" class="btn btn--secondary">Preview Overlay</a>
-        <button id="logout-btn" class="btn btn--ghost">Sign Out</button>
+        <button type="button" id="settings-btn" class="btn btn--icon-action" aria-label="Settings" title="Settings">
+          <span class="material-icons" aria-hidden="true">settings</span>
+        </button>
+        <button id="logout-btn" class="btn btn--ghost">Admin sign out</button>
       </div>
     </header>
+
+    ${renderSettingsModalMarkup()}
 
     <section class="items-section">
       <div class="section-header">
         <h2>Ticker Items (${items.length})</h2>
-        ${renderAddFormButtons()}
+        ${renderSectionHeaderActions()}
       </div>
 
       <section class="add-form" id="add-form-section" ${showAddForm ? "" : "hidden"}>
@@ -1109,7 +1288,7 @@ function renderDashboard(): void {
         </form>
       </section>
 
-      ${items.length === 0 && !showAddForm && !showAddAcrallyForm ? '<div class="empty-state">No items yet. Click Add Item, Add AC Rally Item, Add Music Item, or Add Stream Title Item to get started.</div>' : ""}
+      ${items.length === 0 && !showAddForm && !showAddAcrallyForm ? '<div class="empty-state">No items yet. Use <strong>Add item</strong> to create your first ticker message.</div>' : ""}
       <ul class="item-list" id="item-list">
         ${items.map((item, index) => renderItemCard(item, index)).join("")}
       </ul>
@@ -1124,6 +1303,13 @@ function renderDashboard(): void {
   `;
 
   document.getElementById("logout-btn")!.addEventListener("click", handleLogout);
+
+  document.getElementById("settings-btn")?.addEventListener("click", () => {
+    showSettingsModal = true;
+    renderDashboard();
+  });
+
+  bindSettingsModal();
 
   const spotifyConnectBtn = document.getElementById("spotify-connect-btn");
   if (spotifyConnectBtn) {
@@ -1160,37 +1346,39 @@ function renderDashboard(): void {
     });
   }
 
-  const showAddBtn = document.getElementById("show-add-btn");
-  if (showAddBtn) {
-    showAddBtn.addEventListener("click", () => {
-      showAddForm = true;
-      showAddAcrallyForm = false;
-      renderDashboard();
-      (document.getElementById("new-text") as HTMLTextAreaElement | null)?.focus();
-    });
-  }
+  const addDropdown = document.getElementById("add-dropdown") as HTMLDetailsElement | null;
+  if (addDropdown) {
+    addDropdown.querySelectorAll("[data-add-type]").forEach((btn) => {
+      btn.addEventListener("click", async (e) => {
+        e.preventDefault();
+        addDropdown.open = false;
+        const type = btn.getAttribute("data-add-type");
 
-  const showAddAcrallyBtn = document.getElementById("show-add-acrally-btn");
-  if (showAddAcrallyBtn) {
-    showAddAcrallyBtn.addEventListener("click", () => {
-      showAddAcrallyForm = true;
-      showAddForm = false;
-      renderDashboard();
-      (document.getElementById("acrally-rank") as HTMLInputElement | null)?.focus();
-    });
-  }
+        if (type === "custom") {
+          showAddForm = true;
+          showAddAcrallyForm = false;
+          renderDashboard();
+          (document.getElementById("new-text") as HTMLTextAreaElement | null)?.focus();
+          return;
+        }
 
-  const showAddMusicBtn = document.getElementById("show-add-music-btn");
-  if (showAddMusicBtn) {
-    showAddMusicBtn.addEventListener("click", async () => {
-      await addMusicItem(DEFAULT_HOLD_SECONDS);
-    });
-  }
+        if (type === "acrally") {
+          showAddAcrallyForm = true;
+          showAddForm = false;
+          renderDashboard();
+          (document.getElementById("acrally-rank") as HTMLInputElement | null)?.focus();
+          return;
+        }
 
-  const showAddStreamTitleBtn = document.getElementById("show-add-stream-title-btn");
-  if (showAddStreamTitleBtn) {
-    showAddStreamTitleBtn.addEventListener("click", async () => {
-      await addStreamTitleItem(DEFAULT_HOLD_SECONDS);
+        if (type === "music") {
+          await addMusicItem(DEFAULT_HOLD_SECONDS);
+          return;
+        }
+
+        if (type === "stream-title") {
+          await addStreamTitleItem(DEFAULT_HOLD_SECONDS);
+        }
+      });
     });
   }
 
@@ -1273,19 +1461,9 @@ function renderItemCard(item: TickerItem, index: number): string {
       <div class="item-card__drag-handle" draggable="true" title="Drag to reorder" aria-label="Drag to reorder">⠿</div>
       <div class="item-card__slot">${index + 1}</div>
       <div class="item-card__body">
+        ${renderItemCardHeader(item, null, [formatHoldLabel(item.hold_seconds)])}
         <div class="item-card__preview">
           <div class="ticker-preview-text" id="text-${item.id}">${renderHighlights(getItemDisplayText(item))}</div>
-        </div>
-        <div class="item-card__meta">Display: ${formatHoldLabel(item.hold_seconds)} · ${item.active ? "Active" : "Inactive"}</div>
-      </div>
-      <div class="item-card__actions">
-        <label class="toggle toggle--active">
-          <input type="checkbox" class="toggle-active" ${item.active ? "checked" : ""} />
-          <span>Active</span>
-        </label>
-        <div class="item-card__action-buttons">
-          <button type="button" class="btn btn--secondary btn--sm edit-btn">Edit</button>
-          <button type="button" class="btn btn--danger btn--sm delete-btn">Delete</button>
         </div>
       </div>
     </li>
@@ -1301,9 +1479,7 @@ function renderAcrallyItemCard(item: TickerItem, index: number): string {
       <div class="item-card__drag-handle" draggable="true" title="Drag to reorder" aria-label="Drag to reorder">⠿</div>
       <div class="item-card__slot">${index + 1}</div>
       <div class="item-card__body">
-        <div class="item-card__acrally-header">
-          <span class="badge badge--acrally">AC Rally Mode</span>
-        </div>
+        ${renderItemCardHeader(item, `<span class="badge badge--acrally">AC Rally Mode</span>`, [formatHoldLabel(item.hold_seconds)])}
         <div class="item-card__preview">
           <div class="ticker-preview-text" id="text-${item.id}">${renderHighlights(getItemDisplayText(item))}</div>
         </div>
@@ -1326,19 +1502,6 @@ function renderAcrallyItemCard(item: TickerItem, index: number): string {
             />
             <span class="acrally-field-status" id="rank-status-${item.id}" hidden>Saved</span>
           </div>
-        </div>
-        <div class="item-card__meta item-card__meta--acrally">
-          Display: ${formatHoldLabel(item.hold_seconds)} · ${item.active ? "Active" : "Inactive"}
-        </div>
-      </div>
-      <div class="item-card__actions">
-        <label class="toggle toggle--active">
-          <input type="checkbox" class="toggle-active" ${item.active ? "checked" : ""} />
-          <span>Active</span>
-        </label>
-        <div class="item-card__action-buttons">
-          <button type="button" class="btn btn--secondary btn--sm edit-btn">Edit</button>
-          <button type="button" class="btn btn--danger btn--sm delete-btn">Delete</button>
         </div>
       </div>
     </li>
@@ -1367,34 +1530,23 @@ function renderMusicItemCard(item: TickerItem, index: number): string {
   const suppressed = musicAutoSyncSuppressedIds.has(item.id);
   const statusNote = spotifyReady
     ? suppressed
-      ? "Paused for this session — turn Active on to resume auto-sync"
-      : "Auto on when music plays · off when paused"
-    : "Connect Spotify above to sync now playing";
+      ? "Paused for this session"
+      : "Auto on when music plays"
+    : "Connect Spotify to sync";
 
   return `
     <li class="item-card item-card--music ${item.active ? "" : "item-card--inactive"}" data-id="${item.id}">
       <div class="item-card__drag-handle" draggable="true" title="Drag to reorder" aria-label="Drag to reorder">⠿</div>
       <div class="item-card__slot">${index + 1}</div>
       <div class="item-card__body">
-        <div class="item-card__music-header">
-          <span class="badge badge--music">Now Playing</span>
-        </div>
+        ${renderItemCardHeader(item, `<span class="badge badge--music">Now Playing</span>`, [
+          statusNote,
+          `Display: ${formatHoldLabel(item.hold_seconds)}`,
+        ])}
         <div class="item-card__preview item-card__preview--music">
           <div class="item-card__music-preview-row ticker-preview-text" id="text-${item.id}">
             ${renderMusicItemPreview(item)}
           </div>
-        </div>
-        <div class="item-card__meta item-card__meta--music">
-          ${statusNote} · Display: ${formatHoldLabel(item.hold_seconds)} · ${item.active ? "Active" : "Inactive"}
-        </div>
-      </div>
-      <div class="item-card__actions">
-        <label class="toggle toggle--active">
-          <input type="checkbox" class="toggle-active" ${item.active ? "checked" : ""} />
-          <span>Active</span>
-        </label>
-        <div class="item-card__action-buttons">
-          <button type="button" class="btn btn--danger btn--sm delete-btn">Delete</button>
         </div>
       </div>
     </li>
@@ -1408,34 +1560,21 @@ function renderStreamTitleItemPreview(item: TickerItem): string {
 
 function renderStreamTitleItemCard(item: TickerItem, index: number): string {
   const twitchReady = Boolean(twitchTokens);
-  const statusNote = twitchReady
-    ? "Updates while this admin tab is open"
-    : "Connect Twitch above to sync stream title";
+  const statusNote = twitchReady ? "Syncs while admin is open" : "Connect Twitch to sync";
 
   return `
     <li class="item-card item-card--stream-title ${item.active ? "" : "item-card--inactive"}" data-id="${item.id}">
       <div class="item-card__drag-handle" draggable="true" title="Drag to reorder" aria-label="Drag to reorder">⠿</div>
       <div class="item-card__slot">${index + 1}</div>
       <div class="item-card__body">
-        <div class="item-card__stream-title-header">
-          <span class="badge badge--twitch">Stream Title</span>
-        </div>
+        ${renderItemCardHeader(item, `<span class="badge badge--twitch">Stream Title</span>`, [
+          statusNote,
+          `Display: ${formatHoldLabel(item.hold_seconds)}`,
+        ])}
         <div class="item-card__preview item-card__preview--stream-title">
           <div class="item-card__stream-title-preview-row ticker-preview-text" id="text-${item.id}">
             ${renderStreamTitleItemPreview(item)}
           </div>
-        </div>
-        <div class="item-card__meta item-card__meta--stream-title">
-          ${statusNote} · Display: ${formatHoldLabel(item.hold_seconds)} · ${item.active ? "Active" : "Inactive"}
-        </div>
-      </div>
-      <div class="item-card__actions">
-        <label class="toggle toggle--active">
-          <input type="checkbox" class="toggle-active" ${item.active ? "checked" : ""} />
-          <span>Active</span>
-        </label>
-        <div class="item-card__action-buttons">
-          <button type="button" class="btn btn--danger btn--sm delete-btn">Delete</button>
         </div>
       </div>
     </li>
@@ -1446,7 +1585,10 @@ function bindItemEvents(): void {
   document.querySelectorAll(".item-card").forEach((card) => {
     const id = (card as HTMLElement).dataset.id!;
 
-    card.querySelector(".delete-btn")!.addEventListener("click", () => deleteItem(id));
+    const deleteBtn = card.querySelector(".delete-btn");
+    if (deleteBtn) {
+      deleteBtn.addEventListener("click", () => deleteItem(id));
+    }
 
     card.querySelector(".toggle-active")!.addEventListener("change", (e) => {
       const checked = (e.target as HTMLInputElement).checked;
@@ -1568,13 +1710,35 @@ function bindDragReorder(): void {
   });
 }
 
+function createHoldSelectElement(selectedSeconds?: number): HTMLSelectElement {
+  const holdSelect = document.createElement("select");
+  holdSelect.className = "item-card__hold";
+  holdSelect.innerHTML = `
+    <option value="default">Default (5s)</option>
+    <option value="extended">Extended (10s)</option>
+    <option value="super">Super (15s)</option>
+  `;
+  holdSelect.value = presetFromSeconds(selectedSeconds);
+  return holdSelect;
+}
+
+function setCardEditActions(card: Element): void {
+  card.querySelector(".item-card__actions")!.innerHTML = `
+    <div class="item-card__toolbar item-card__toolbar--edit">
+      <button type="button" class="btn btn--primary btn--sm save-edit">Save</button>
+      <button type="button" class="btn btn--ghost btn--sm cancel-edit">Cancel</button>
+    </div>
+  `;
+}
+
 function startEdit(id: string): void {
   const item = items.find((i) => i.id === id);
   if (!item) return;
 
-  if (isMusicItem(item)) return;
-
-  if (isStreamTitleItem(item)) return;
+  if (isMusicItem(item) || isStreamTitleItem(item)) {
+    startHoldOnlyEdit(id, item);
+    return;
+  }
 
   if (isAcrallyItem(item)) {
     startAcrallyEdit(id, item);
@@ -1585,12 +1749,7 @@ function startEdit(id: string): void {
   const card = textEl.closest(".item-card")!;
   const previewWrap = textEl.closest(".item-card__preview")!;
 
-  card.querySelector(".item-card__actions")!.innerHTML = `
-    <div class="item-card__action-buttons item-card__action-buttons--edit">
-      <button type="button" class="btn btn--primary btn--sm save-edit">Save</button>
-      <button type="button" class="btn btn--ghost btn--sm cancel-edit">Cancel</button>
-    </div>
-  `;
+  setCardEditActions(card);
 
   const textarea = document.createElement("textarea");
   textarea.className = "item-card__edit";
@@ -1600,14 +1759,7 @@ function startEdit(id: string): void {
   holdLabel.className = "item-card__hold-label";
   holdLabel.textContent = "Display time";
 
-  const holdSelect = document.createElement("select");
-  holdSelect.className = "item-card__hold";
-  holdSelect.innerHTML = `
-    <option value="default">Default (5s)</option>
-    <option value="extended">Extended (10s)</option>
-    <option value="super">Super (15s)</option>
-  `;
-  holdSelect.value = presetFromSeconds(item.hold_seconds);
+  const holdSelect = createHoldSelectElement(item.hold_seconds);
 
   const editFields = document.createElement("div");
   editFields.className = "item-card__edit-fields";
@@ -1629,29 +1781,52 @@ function startEdit(id: string): void {
   card.querySelector(".cancel-edit")!.addEventListener("click", () => renderDashboard());
 }
 
-function startAcrallyEdit(id: string, item: TickerItem): void {
+function startHoldOnlyEdit(id: string, item: TickerItem): void {
   const card = document.querySelector(`[data-id="${id}"]`) as HTMLElement;
   const body = card.querySelector(".item-card__body")!;
+  const preview = body.querySelector(".item-card__preview");
 
-  card.querySelector(".item-card__actions")!.innerHTML = `
-    <div class="item-card__action-buttons item-card__action-buttons--edit">
-      <button type="button" class="btn btn--primary btn--sm save-edit">Save</button>
-      <button type="button" class="btn btn--ghost btn--sm cancel-edit">Cancel</button>
-    </div>
-  `;
+  setCardEditActions(card);
+
+  body.querySelector(".item-card__hold-edit")?.remove();
 
   const holdLabel = document.createElement("label");
   holdLabel.className = "item-card__hold-label";
   holdLabel.textContent = "Display time";
 
-  const holdSelect = document.createElement("select");
-  holdSelect.className = "item-card__hold";
-  holdSelect.innerHTML = `
-    <option value="default">Default (5s)</option>
-    <option value="extended">Extended (10s)</option>
-    <option value="super">Super (15s)</option>
-  `;
-  holdSelect.value = presetFromSeconds(item.hold_seconds);
+  const holdSelect = createHoldSelectElement(item.hold_seconds);
+
+  const editFields = document.createElement("div");
+  editFields.className = "item-card__edit-fields item-card__hold-edit";
+  editFields.append(holdLabel, holdSelect);
+
+  if (preview) {
+    preview.after(editFields);
+  } else {
+    body.append(editFields);
+  }
+
+  holdSelect.focus();
+
+  card.querySelector(".save-edit")!.addEventListener("click", async () => {
+    const hold_seconds = secondsFromPreset(holdSelect.value);
+    await updateItem(id, { hold_seconds });
+  });
+
+  card.querySelector(".cancel-edit")!.addEventListener("click", () => renderDashboard());
+}
+
+function startAcrallyEdit(id: string, item: TickerItem): void {
+  const card = document.querySelector(`[data-id="${id}"]`) as HTMLElement;
+  const body = card.querySelector(".item-card__body")!;
+
+  setCardEditActions(card);
+
+  const holdLabel = document.createElement("label");
+  holdLabel.className = "item-card__hold-label";
+  holdLabel.textContent = "Display time";
+
+  const holdSelect = createHoldSelectElement(item.hold_seconds);
 
   const editNote = document.createElement("p");
   editNote.className = "item-card__acrally-edit-note";
