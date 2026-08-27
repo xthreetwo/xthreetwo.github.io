@@ -61,7 +61,8 @@ export function formatMusicText(track: string, artist: string): string {
 
 export function formatStreamTitleValue(title: string): string {
   const trimmed = title.trim();
-  return trimmed ? `**${trimmed}**` : "—";
+  // Single asterisks → bold (not orange accent; ** is accent in highlight syntax).
+  return trimmed ? `*${trimmed}*` : "—";
 }
 
 export function formatStreamTitleText(title: string): string {

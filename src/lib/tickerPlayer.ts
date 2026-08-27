@@ -52,9 +52,15 @@ async function playItem(
   stageEl: HTMLElement,
   item: TickerItem,
   runId: number,
-  isActive: (id: number) => boolean
+  isActive: (id: number) => boolean,
+  getActiveItems: () => TickerItem[]
 ): Promise<void> {
   if (!isActive(runId)) return;
+
+  const freshItem = getActiveItems().find((i) => i.id === item.id);
+  if (!freshItem) return;
+
+  item = freshItem;
 
   const albumArtUrl = (item.music_album_art_url ?? "").trim();
   let contentHtml: string;
@@ -139,7 +145,7 @@ export async function runTickerCycle(
 
     for (const item of cycleItems) {
       if (!isActive(runId)) return;
-      await playItem(stageEl, item, runId, isActive);
+      await playItem(stageEl, item, runId, isActive, getActiveItems);
     }
   }
 }

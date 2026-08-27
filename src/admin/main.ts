@@ -66,7 +66,7 @@ interface TwitchTokenRow {
 }
 
 const SPOTIFY_POLL_MS = 5000;
-const TWITCH_POLL_MS = 30000;
+const TWITCH_POLL_MS = 300000;
 
 const app = document.getElementById("app")!;
 
@@ -77,6 +77,8 @@ let showAddAcrallyForm = false;
 let draggedId: string | null = null;
 let spotifyTokens: SpotifyTokenRow | null = null;
 let spotifyPollTimer: ReturnType<typeof setInterval> | null = null;
+/** Music items the user manually turned off — skip auto-enable until they turn back on. */
+const musicAutoSyncSuppressedIds = new Set<string>();
 let twitchTokens: TwitchTokenRow | null = null;
 let twitchPollTimer: ReturnType<typeof setInterval> | null = null;
 let twitchDeviceAuth: TwitchDeviceCodeResponse | null = null;
@@ -156,6 +158,7 @@ async function handleLogout(): Promise<void> {
   stopTwitchPoller();
   stopTwitchDevicePoll();
   twitchDeviceAuth = null;
+  musicAutoSyncSuppressedIds.clear();
   await supabase.auth.signOut();
 }
 
@@ -380,8 +383,43 @@ async function updateMusicItemFields(
   return true;
 }
 
-function hasActiveMusicItems(): boolean {
-  return items.some((item) => isMusicItem(item) && item.active);
+function hasMusicItems(): boolean {
+  return items.some((item) => isMusicItem(item));
+}
+
+async function setMusicItemActive(id: string, active: boolean): Promise<boolean> {
+  const item = items.find((i) => i.id === id);
+  if (!item || !isMusicItem(item)) return false;
+  if (item.active === active) return false;
+
+  const { error } = await supabase.from("ticker_items").update({ active }).eq("id", id);
+  if (error) {
+    console.error("Failed to update music item active state:", error.message);
+    return false;
+  }
+
+  item.active = active;
+
+  const card = document.querySelector(`[data-id="${id}"]`);
+  if (card) {
+    card.classList.toggle("item-card--inactive", !active);
+    const toggle = card.querySelector(".toggle-active") as HTMLInputElement | null;
+    if (toggle) toggle.checked = active;
+
+    const meta = card.querySelector(".item-card__meta--music");
+    if (meta) {
+      const holdPart = formatHoldLabel(item.hold_seconds);
+      const suppressed = musicAutoSyncSuppressedIds.has(id);
+      const statusNote = spotifyTokens
+        ? suppressed
+          ? "Paused for this session"
+          : "Auto on when music plays"
+        : "Connect Spotify above to sync now playing";
+      meta.textContent = `${statusNote} · Display: ${holdPart} · ${active ? "Active" : "Inactive"}`;
+    }
+  }
+
+  return true;
 }
 
 async function addStreamTitleItem(hold_seconds: number): Promise<void> {
@@ -832,7 +870,7 @@ async function ensureSpotifyAccessToken(): Promise<string | null> {
 }
 
 async function pollSpotifyNowPlaying(): Promise<void> {
-  if (!spotifyTokens || !hasActiveMusicItems()) return;
+  if (!spotifyTokens || !hasMusicItems()) return;
 
   const accessToken = await ensureSpotifyAccessToken();
   if (!accessToken) return;
@@ -842,10 +880,18 @@ async function pollSpotifyNowPlaying(): Promise<void> {
     const track = nowPlaying?.track ?? "";
     const artist = nowPlaying?.artist ?? "";
     const albumArtUrl = nowPlaying?.albumArtUrl ?? "";
+    const isPlaying = Boolean(track.trim());
 
     for (const item of items) {
-      if (!isMusicItem(item) || !item.active) continue;
+      if (!isMusicItem(item)) continue;
+
       await updateMusicItemFields(item.id, track, artist, albumArtUrl);
+
+      if (!isPlaying) {
+        await setMusicItemActive(item.id, false);
+      } else if (!musicAutoSyncSuppressedIds.has(item.id)) {
+        await setMusicItemActive(item.id, true);
+      }
     }
   } catch (error) {
     console.error("Spotify poll failed:", error);
@@ -855,7 +901,7 @@ async function pollSpotifyNowPlaying(): Promise<void> {
 function startSpotifyPoller(): void {
   stopSpotifyPoller();
 
-  if (!spotifyTokens || !hasActiveMusicItems()) return;
+  if (!spotifyTokens || !hasMusicItems()) return;
 
   spotifyPollTimer = window.setInterval(() => {
     pollSpotifyNowPlaying();
@@ -897,6 +943,8 @@ function renderSpotifyStatusMarkup(): string {
 
 async function deleteItem(id: string): Promise<void> {
   if (!confirm("Delete this ticker item?")) return;
+
+  musicAutoSyncSuppressedIds.delete(id);
 
   const { error } = await supabase.from("ticker_items").delete().eq("id", id);
 
@@ -1316,8 +1364,11 @@ function renderMusicItemPreview(item: TickerItem): string {
 
 function renderMusicItemCard(item: TickerItem, index: number): string {
   const spotifyReady = Boolean(spotifyTokens);
+  const suppressed = musicAutoSyncSuppressedIds.has(item.id);
   const statusNote = spotifyReady
-    ? "Updates while this admin tab is open"
+    ? suppressed
+      ? "Paused for this session — turn Active on to resume auto-sync"
+      : "Auto on when music plays · off when paused"
     : "Connect Spotify above to sync now playing";
 
   return `
@@ -1399,6 +1450,16 @@ function bindItemEvents(): void {
 
     card.querySelector(".toggle-active")!.addEventListener("change", (e) => {
       const checked = (e.target as HTMLInputElement).checked;
+      const item = items.find((i) => i.id === id);
+
+      if (item && isMusicItem(item)) {
+        if (checked) {
+          musicAutoSyncSuppressedIds.delete(id);
+        } else {
+          musicAutoSyncSuppressedIds.add(id);
+        }
+      }
+
       updateItem(id, { active: checked });
     });
 

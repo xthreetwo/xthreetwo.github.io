@@ -32,20 +32,29 @@ async function fetchItems(): Promise<TickerItem[]> {
   return data ?? [];
 }
 
-async function refreshItems(): Promise<void> {
-  items = await fetchItems();
-  player.refresh();
+async function syncItemsFromDatabase(): Promise<void> {
+  const newItems = await fetchItems();
+  const hadItems = items.length > 0;
+  const hasItems = newItems.length > 0;
+
+  items = newItems;
+
+  // Only restart the cycle when crossing empty ↔ non-empty (stuck empty state otherwise).
+  if ((!hadItems && hasItems) || (hadItems && !hasItems)) {
+    player.refresh();
+  }
 }
 
 async function init(): Promise<void> {
-  await refreshItems();
+  items = await fetchItems();
+  player.refresh();
 
   supabase
     .channel("ticker_items_changes")
     .on(
       "postgres_changes",
       { event: "*", schema: "public", table: "ticker_items" },
-      () => refreshItems()
+      () => syncItemsFromDatabase()
     )
     .subscribe();
 }

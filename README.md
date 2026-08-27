@@ -99,7 +99,7 @@ Show your current Twitch stream title on the ticker. Updates when you change the
 
 1. Admin → **Connect Twitch** → open [twitch.tv/activate](https://www.twitch.tv/activate) and enter the code shown in the admin header.
 2. Click **Add Stream Title Item** and keep it **Active**.
-3. **Keep the admin tab open** during your stream — it polls Twitch every ~30 seconds and updates the overlay via Supabase Realtime.
+3. **Keep the admin tab open** during your stream — it polls Twitch every ~5 minutes and updates the overlay via Supabase Realtime.
 
 Display format: Twitch icon + `**Your title here**`
 
