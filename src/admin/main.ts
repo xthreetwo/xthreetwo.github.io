@@ -39,17 +39,16 @@ import {
   startSpotifyAuth,
 } from "../lib/spotify";
 import {
-  clearTwitchCallbackParams,
-  exchangeTwitchCode,
-  fetchChannelTitle,
+  pollTwitchDeviceToken,
+  requestTwitchDeviceCode,
   isTwitchConfigured,
-  isTwitchOAuthCallback,
   isTwitchTokenExpired,
-  parseTwitchCallbackCode,
   refreshTwitchAccessToken,
-  startTwitchAuth,
   twitchExpiresAt,
   validateTwitchToken,
+  fetchChannelTitle,
+  type TwitchDeviceCodeResponse,
+  type TwitchTokenResponse,
 } from "../lib/twitch";
 import type { Session } from "@supabase/supabase-js";
 
@@ -80,6 +79,8 @@ let spotifyTokens: SpotifyTokenRow | null = null;
 let spotifyPollTimer: ReturnType<typeof setInterval> | null = null;
 let twitchTokens: TwitchTokenRow | null = null;
 let twitchPollTimer: ReturnType<typeof setInterval> | null = null;
+let twitchDeviceAuth: TwitchDeviceCodeResponse | null = null;
+let twitchDevicePollTimer: ReturnType<typeof setInterval> | null = null;
 
 // --- Auth ---
 
@@ -152,6 +153,9 @@ async function handleLogin(e: Event): Promise<void> {
 
 async function handleLogout(): Promise<void> {
   stopSpotifyPoller();
+  stopTwitchPoller();
+  stopTwitchDevicePoll();
+  twitchDeviceAuth = null;
   await supabase.auth.signOut();
 }
 
@@ -492,6 +496,7 @@ async function saveTwitchTokens(
 
 async function disconnectTwitch(): Promise<void> {
   stopTwitchPoller();
+  stopTwitchDevicePoll();
 
   if (session?.user) {
     const { error } = await supabase
@@ -506,50 +511,107 @@ async function disconnectTwitch(): Promise<void> {
   }
 
   twitchTokens = null;
+  twitchDeviceAuth = null;
   renderDashboard();
 }
 
 async function handleOAuthCallbacksIfPresent(): Promise<void> {
-  if (isTwitchOAuthCallback()) {
-    await handleTwitchOAuthCallbackIfPresent();
-    return;
-  }
-
   if (isSpotifyOAuthCallback()) {
     await handleSpotifyOAuthCallbackIfPresent();
   }
 }
 
-async function handleTwitchOAuthCallbackIfPresent(): Promise<void> {
-  const code = parseTwitchCallbackCode();
-  if (!code) return;
+async function startTwitchDeviceConnect(): Promise<void> {
+  stopTwitchDevicePoll();
+  twitchDeviceAuth = null;
 
-  clearTwitchCallbackParams();
-
-  const tokenResponse = await exchangeTwitchCode(code);
-  if (!tokenResponse) {
-    alert("Twitch authorization failed. Please try connecting again.");
+  const deviceCode = await requestTwitchDeviceCode();
+  if (!deviceCode) {
+    alert("Failed to start Twitch authorization. Check your Client ID and try again.");
     return;
   }
 
-  const refreshToken = tokenResponse.refresh_token ?? twitchTokens?.refresh_token;
+  twitchDeviceAuth = deviceCode;
+  renderDashboard();
+  startTwitchDevicePoll(deviceCode);
+}
+
+function stopTwitchDevicePoll(): void {
+  if (twitchDevicePollTimer !== null) {
+    clearInterval(twitchDevicePollTimer);
+    twitchDevicePollTimer = null;
+  }
+}
+
+async function completeTwitchDeviceAuth(tokenResponse: TwitchTokenResponse): Promise<void> {
+  const refreshToken = tokenResponse.refresh_token;
   if (!refreshToken) {
-    alert("Twitch did not return a refresh token. Disconnect and connect again.");
+    alert("Twitch did not return a refresh token. Please try connecting again.");
+    renderDashboard();
     return;
   }
 
   const validated = await validateTwitchToken(tokenResponse.access_token);
   if (!validated?.user_id) {
     alert("Twitch authorization failed. Could not verify your account.");
+    renderDashboard();
     return;
   }
 
-  await saveTwitchTokens(
+  const saved = await saveTwitchTokens(
     tokenResponse.access_token,
     refreshToken,
     twitchExpiresAt(tokenResponse.expires_in),
     validated.user_id
   );
+
+  if (!saved) {
+    renderDashboard();
+    return;
+  }
+
+  renderDashboard();
+}
+
+function startTwitchDevicePoll(deviceCode: TwitchDeviceCodeResponse): void {
+  stopTwitchDevicePoll();
+
+  let pollMs = Math.max(deviceCode.interval, 5) * 1000;
+
+  const poll = async (): Promise<void> => {
+    const result = await pollTwitchDeviceToken(deviceCode.device_code);
+
+    if (result.status === "slow_down") {
+      pollMs = Math.min(pollMs + 2000, 15000);
+      stopTwitchDevicePoll();
+      twitchDevicePollTimer = window.setInterval(poll, pollMs);
+      return;
+    }
+
+    if (result.status === "pending") {
+      return;
+    }
+
+    stopTwitchDevicePoll();
+    twitchDeviceAuth = null;
+
+    if (result.status === "success" && result.tokens) {
+      await completeTwitchDeviceAuth(result.tokens);
+      return;
+    }
+
+    alert(result.message ?? "Twitch authorization failed. Please try connecting again.");
+    renderDashboard();
+  };
+
+  twitchDevicePollTimer = window.setInterval(poll, pollMs);
+  poll();
+}
+
+function cancelTwitchDeviceConnect(): void {
+  stopTwitchDevicePoll();
+  twitchDeviceAuth = null;
+  renderDashboard();
 }
 
 async function ensureTwitchAccessToken(): Promise<string | null> {
@@ -622,6 +684,21 @@ function renderTwitchStatusMarkup(): string {
       <div class="twitch-panel twitch-panel--disabled">
         <span class="twitch-panel__label">Twitch</span>
         <span class="twitch-panel__status">Add VITE_TWITCH_CLIENT_ID to enable</span>
+      </div>
+    `;
+  }
+
+  if (twitchDeviceAuth) {
+    const activateUrl = twitchDeviceAuth.verification_uri;
+    const userCode = twitchDeviceAuth.user_code;
+
+    return `
+      <div class="twitch-panel twitch-panel--device">
+        <span class="twitch-panel__label">Twitch</span>
+        <span class="twitch-panel__status">Enter code <strong>${escapeHtml(userCode)}</strong> at
+          <a href="${escapeHtml(activateUrl)}" target="_blank" rel="noopener noreferrer">twitch.tv/activate</a>
+        </span>
+        <button type="button" id="twitch-cancel-device-btn" class="btn btn--sm btn--ghost">Cancel</button>
       </div>
     `;
   }
@@ -1017,7 +1094,14 @@ function renderDashboard(): void {
   const twitchConnectBtn = document.getElementById("twitch-connect-btn");
   if (twitchConnectBtn) {
     twitchConnectBtn.addEventListener("click", () => {
-      startTwitchAuth();
+      startTwitchDeviceConnect();
+    });
+  }
+
+  const twitchCancelDeviceBtn = document.getElementById("twitch-cancel-device-btn");
+  if (twitchCancelDeviceBtn) {
+    twitchCancelDeviceBtn.addEventListener("click", () => {
+      cancelTwitchDeviceConnect();
     });
   }
 

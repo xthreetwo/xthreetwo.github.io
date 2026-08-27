@@ -88,8 +88,8 @@ Show your current Twitch stream title on the ticker. Updates when you change the
 
 ### Setup
 
-1. Register an app in the [Twitch Developer Console](https://dev.twitch.tv/console/apps).
-2. Add OAuth redirect URIs (must match exactly — OAuth always uses `/admin.html`):
+1. Register an app in the [Twitch Developer Console](https://dev.twitch.tv/console/apps). Set the client type to **Public** (required for browser-based auth without a client secret).
+2. OAuth redirect URIs are not required for device activation, but you may add them if you use other flows later:
    - `https://xthreetwo.github.io/admin.html`
    - `http://localhost:5173/admin.html` (local dev)
 3. Copy the **Client ID** into `.env` as `VITE_TWITCH_CLIENT_ID` and into GitHub Actions secrets.
@@ -97,7 +97,7 @@ Show your current Twitch stream title on the ticker. Updates when you change the
 
 ### Usage
 
-1. Admin → **Connect Twitch** and authorize with your broadcaster account.
+1. Admin → **Connect Twitch** → open [twitch.tv/activate](https://www.twitch.tv/activate) and enter the code shown in the admin header.
 2. Click **Add Stream Title Item** and keep it **Active**.
 3. **Keep the admin tab open** during your stream — it polls Twitch every ~30 seconds and updates the overlay via Supabase Realtime.
 
