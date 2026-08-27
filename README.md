@@ -110,6 +110,7 @@ Real-time Twitch alerts on the overlay via EventSub webhooks. The ticker pauses 
 ### Setup
 
 1. Run migration [`009_twitch_alerts.sql`](supabase/migrations/009_twitch_alerts.sql) in Supabase SQL Editor.
+2. Run migration [`010_alert_sounds_storage.sql`](supabase/migrations/010_alert_sounds_storage.sql) for alert sound uploads.
 2. Deploy Edge Functions (Supabase CLI):
    ```bash
    supabase functions deploy twitch-eventsub twitch-eventsub-register twitch-oauth
@@ -126,7 +127,7 @@ Real-time Twitch alerts on the overlay via EventSub webhooks. The ticker pauses 
 
 1. Admin → **Connect Twitch** (device activation at [twitch.tv/activate](https://www.twitch.tv/activate)).
 2. Open **Settings** → **Enable alerts** to register EventSub subscriptions.
-3. Customize per-type templates, sounds, and duration in Settings. Use **Test** to fire a sample alert on the overlay.
+3. Customize per-type templates, sounds, and duration in the Twitch Alerts panel. Upload MP3/WAV/etc. per alert type (stored in Supabase). Use **Test** to fire a sample alert on the overlay.
 4. Overlay does **not** require the admin tab during stream — alerts arrive via Supabase Realtime.
 
 ### Streamlabs / OBS audio
@@ -135,7 +136,7 @@ Real-time Twitch alerts on the overlay via EventSub webhooks. The ticker pauses 
 2. Enable **Control audio via OBS** / browser-source audio in Streamlabs so alert sounds play.
 3. Run a **Test** alert from Settings before going live.
 
-Default sounds live in [`public/sounds/`](public/sounds/) — replace `follow.mp3`, `subscribe.mp3`, etc. with your own clips.
+Default placeholder sounds live in [`public/sounds/`](public/sounds/) until you upload your own clips in admin (recommended).
 
 ## OBS Setup
 

@@ -56,13 +56,19 @@ import {
 } from "../lib/twitch";
 import {
   countEventSubscriptions,
+  formatEventSubRegisterError,
   insertTestAlert,
   loadAlertSettings,
   registerTwitchEventSub,
-  formatEventSubRegisterError,
   saveAlertSettings,
   seedAlertSettings,
 } from "../lib/twitchAlertAdmin";
+import {
+  formatAlertSoundLabel,
+  isDefaultAlertSound,
+  resetAlertSoundToDefault,
+  uploadAlertSound,
+} from "../lib/alertSoundUpload";
 import {
   DEFAULT_ALERT_DURATION_MS,
   DEFAULT_ALERT_TEMPLATES,
@@ -116,7 +122,10 @@ let twitchDeviceAuth: TwitchDeviceCodeResponse | null = null;
 let twitchDevicePollTimer: ReturnType<typeof setInterval> | null = null;
 let tickerAccentColor = DEFAULT_TICKER_ACCENT;
 let showSettingsModal = false;
+let showAlertsPanel = false;
+let showAlertsTestPanel = false;
 let alertSettingsDraft: TickerAlertSettingsRow[] = [];
+let alertSettingsSaved: TickerAlertSettingsRow[] = [];
 let eventSubCount = 0;
 
 // --- Auth ---
@@ -544,9 +553,16 @@ async function loadTwitchTokens(): Promise<void> {
 
   if (twitchTokens && session.user) {
     await seedAlertSettings(session.user.id);
+    alertSettingsDraft = normalizeAlertSettings(
+      await loadAlertSettings(session.user.id),
+      session.user.id
+    );
+    alertSettingsSaved = cloneAlertSettings(alertSettingsDraft);
     eventSubCount = await countEventSubscriptions(session.user.id);
   } else {
     eventSubCount = 0;
+    alertSettingsDraft = [];
+    alertSettingsSaved = [];
   }
 }
 
@@ -666,11 +682,17 @@ async function completeTwitchDeviceAuth(tokenResponse: TwitchTokenResponse): Pro
 
   if (session?.user) {
     await seedAlertSettings(session.user.id);
+    alertSettingsDraft = normalizeAlertSettings(
+      await loadAlertSettings(session.user.id),
+      session.user.id
+    );
+    alertSettingsSaved = cloneAlertSettings(alertSettingsDraft);
     const reg = await registerTwitchEventSub();
     if (!reg.ok) {
       console.warn("Twitch EventSub registration incomplete:", reg);
     }
     eventSubCount = await countEventSubscriptions(session.user.id);
+    showAlertsPanel = true;
   }
 
   renderDashboard();
@@ -1180,6 +1202,180 @@ function updateAcrallyAddPreview(): void {
   previewEl.innerHTML = `<span class="ticker-preview-text">${renderHighlights(text)}</span>`;
 }
 
+function normalizeAlertSettings(
+  rows: TickerAlertSettingsRow[],
+  userId: string
+): TickerAlertSettingsRow[] {
+  return TWITCH_ALERT_TYPES.map((alertType) => {
+    const existing = rows.find((row) => row.alert_type === alertType);
+    if (existing) {
+      return {
+        ...existing,
+        user_id: userId,
+        duration_ms: Number(existing.duration_ms),
+      };
+    }
+    return {
+      user_id: userId,
+      alert_type: alertType,
+      enabled: true,
+      template: DEFAULT_ALERT_TEMPLATES[alertType],
+      sound_url: defaultAlertSoundUrl(alertType),
+      duration_ms: DEFAULT_ALERT_DURATION_MS,
+    };
+  });
+}
+
+function cloneAlertSettings(rows: TickerAlertSettingsRow[]): TickerAlertSettingsRow[] {
+  return rows.map((row) => ({ ...row }));
+}
+
+function alertSettingsEqual(
+  a: TickerAlertSettingsRow[],
+  b: TickerAlertSettingsRow[]
+): boolean {
+  for (const alertType of TWITCH_ALERT_TYPES) {
+    const rowA = a.find((row) => row.alert_type === alertType);
+    const rowB = b.find((row) => row.alert_type === alertType);
+    if (!rowA || !rowB) return false;
+    if (
+      rowA.enabled !== rowB.enabled ||
+      rowA.template !== rowB.template ||
+      rowA.sound_url !== rowB.sound_url ||
+      rowA.duration_ms !== rowB.duration_ms
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function areAlertSettingsDirty(): boolean {
+  const userId = session?.user?.id ?? "";
+  if (!userId || !twitchTokens) return false;
+
+  const draft = normalizeAlertSettings(alertSettingsDraft, userId);
+  const saved = normalizeAlertSettings(alertSettingsSaved, userId);
+  return !alertSettingsEqual(draft, saved);
+}
+
+function getAlertSettingsForActions(): TickerAlertSettingsRow[] {
+  if (showAlertsPanel) {
+    return collectAlertSettingsFromDom();
+  }
+  return alertSettingsDraft;
+}
+
+function syncAlertDraftFromDom(): void {
+  if (!showAlertsPanel || !session?.user?.id) return;
+  alertSettingsDraft = normalizeAlertSettings(collectAlertSettingsFromDom(), session.user.id);
+  updateAlertsSaveButtonState();
+}
+
+function updateAlertsSaveButtonState(): void {
+  const actions = document.querySelector(".alerts-section__actions");
+  const saveBtn = document.getElementById("alerts-save-btn");
+  const dirty = areAlertSettingsDirty();
+
+  if (!dirty && saveBtn) {
+    saveBtn.remove();
+    return;
+  }
+
+  if (dirty && !saveBtn && actions) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.id = "alerts-save-btn";
+    btn.className = "btn btn--sm btn--primary";
+    btn.textContent = "Save alerts";
+    btn.addEventListener("click", handleSaveAlertsClick);
+    actions.appendChild(btn);
+  }
+}
+
+async function handleSaveAlertsClick(): Promise<void> {
+  if (!session?.user || !twitchTokens) return;
+
+  const settings = getAlertSettingsForActions();
+  const normalized = normalizeAlertSettings(settings, session.user.id);
+  const saved = await saveAlertSettings(session.user.id, normalized);
+  if (!saved) return;
+
+  alertSettingsDraft = normalized;
+  alertSettingsSaved = cloneAlertSettings(normalized);
+  updateAlertsSaveButtonState();
+}
+
+async function applyAlertSoundUrl(alertType: TwitchAlertType, soundUrl: string): Promise<void> {
+  if (!session?.user) return;
+
+  const soundInput = document.getElementById(`alert-sound-${alertType}`) as HTMLInputElement | null;
+  if (soundInput) {
+    soundInput.value = soundUrl;
+  }
+
+  if (showAlertsPanel) {
+    alertSettingsDraft = normalizeAlertSettings(collectAlertSettingsFromDom(), session.user.id);
+  } else {
+    alertSettingsDraft = normalizeAlertSettings(
+      alertSettingsDraft.map((row) =>
+        row.alert_type === alertType ? { ...row, sound_url: soundUrl } : row
+      ),
+      session.user.id
+    );
+  }
+
+  const saved = await saveAlertSettings(session.user.id, alertSettingsDraft);
+  if (!saved) return;
+
+  alertSettingsSaved = cloneAlertSettings(alertSettingsDraft);
+  updateAlertsSaveButtonState();
+  renderDashboard();
+}
+
+async function handleAlertSoundUpload(alertType: TwitchAlertType, file: File): Promise<void> {
+  if (!session?.user) return;
+
+  const uploadBtn = document.getElementById(`alert-sound-upload-${alertType}`) as HTMLButtonElement | null;
+  if (uploadBtn) {
+    uploadBtn.disabled = true;
+    uploadBtn.textContent = "Uploading…";
+  }
+
+  const result = await uploadAlertSound(session.user.id, alertType, file);
+
+  if (uploadBtn) {
+    uploadBtn.disabled = false;
+    uploadBtn.textContent = "Upload";
+  }
+
+  if (!result.ok) {
+    alert(result.error);
+    return;
+  }
+
+  await applyAlertSoundUrl(alertType, result.publicUrl);
+}
+
+async function handleAlertSoundReset(alertType: TwitchAlertType): Promise<void> {
+  if (!session?.user) return;
+
+  const removed = await resetAlertSoundToDefault(session.user.id, alertType);
+  if (!removed.ok) {
+    alert(removed.error);
+    return;
+  }
+
+  await applyAlertSoundUrl(alertType, defaultAlertSoundUrl(alertType));
+}
+
+function renderAlertQuickTestButtons(): string {
+  return TWITCH_ALERT_TYPES.map((alertType) => {
+    const label = formatAlertLabel(alertType);
+    return `<button type="button" class="btn btn--sm btn--ghost alert-test-quick" data-alert-type="${alertType}" title="Test ${label}">${escapeHtml(label)}</button>`;
+  }).join("");
+}
+
 function renderAlertDurationSelect(id: string, durationMs: number): string {
   const options = ALERT_DURATION_OPTIONS.map((ms) => {
     const label = ms >= 1000 ? `${ms / 1000}s` : `${ms}ms`;
@@ -1207,14 +1403,8 @@ function twitchAlertsStatusText(): string {
   return `Twitch alerts active (${eventSubCount} EventSub subscriptions).`;
 }
 
-function renderAlertSettingsMarkup(): string {
-  if (!twitchTokens) return "";
-
-  const status = twitchAlertsStatusText();
-  const scopesOk = twitchHasRequiredScopes(twitchTokens.scopes);
-  const subsOk = eventSubCount >= TWITCH_ALERT_TYPES.length;
-
-  const rows = TWITCH_ALERT_TYPES.map((alertType) => {
+function renderAlertTypeCards(): string {
+  return TWITCH_ALERT_TYPES.map((alertType) => {
     const setting =
       alertSettingsDraft.find((row) => row.alert_type === alertType) ?? {
         user_id: session?.user?.id ?? "",
@@ -1232,7 +1422,6 @@ function renderAlertSettingsMarkup(): string {
             <input type="checkbox" id="alert-enabled-${alertType}" ${setting.enabled ? "checked" : ""} />
             <span>${escapeHtml(formatAlertLabel(alertType))}</span>
           </label>
-          <button type="button" class="btn btn--sm btn--ghost" id="alert-test-${alertType}">Test</button>
         </div>
         <div class="form-group">
           <label for="alert-template-${alertType}">Template</label>
@@ -1240,8 +1429,27 @@ function renderAlertSettingsMarkup(): string {
           <p class="syntax-help">Variables: <code>{user}</code> <code>{tier}</code> <code>{total}</code> <code>{viewers}</code> <code>{bits}</code> <code>{message}</code></p>
         </div>
         <div class="form-group">
-          <label for="alert-sound-${alertType}">Sound URL</label>
-          <input type="text" id="alert-sound-${alertType}" value="${escapeHtml(setting.sound_url)}" spellcheck="false" />
+          <label>Sound</label>
+          <div class="alert-sound-upload">
+            <span class="alert-sound-upload__label" id="alert-sound-label-${alertType}">${escapeHtml(formatAlertSoundLabel(setting.sound_url, alertType))}</span>
+            <div class="alert-sound-upload__actions">
+              <input
+                type="file"
+                id="alert-sound-file-${alertType}"
+                class="alert-sound-upload__file"
+                accept="audio/mpeg,audio/wav,audio/ogg,audio/webm,audio/mp4,.mp3,.wav,.ogg,.webm,.m4a"
+                hidden
+              />
+              <button type="button" class="btn btn--sm btn--ghost" id="alert-sound-upload-${alertType}">Upload</button>
+              ${
+                isDefaultAlertSound(setting.sound_url, alertType)
+                  ? ""
+                  : `<button type="button" class="btn btn--sm btn--ghost" id="alert-sound-reset-${alertType}">Use default</button>`
+              }
+            </div>
+          </div>
+          <input type="hidden" id="alert-sound-${alertType}" value="${escapeHtml(setting.sound_url)}" />
+          <p class="syntax-help">MP3, WAV, OGG, WebM, or M4A — max 5 MB. Saved automatically on upload.</p>
         </div>
         <div class="form-group">
           <label for="alert-duration-${alertType}">Duration</label>
@@ -1250,20 +1458,78 @@ function renderAlertSettingsMarkup(): string {
       </div>
     `;
   }).join("");
+}
+
+function renderTwitchAlertsSection(): string {
+  if (!isTwitchConfigured()) return "";
+
+  if (!twitchTokens) {
+    return `
+      <section class="alerts-section alerts-section--compact">
+        <div class="alerts-section__bar">
+          ${renderTwitchBrandMarkup()}
+          <p class="alerts-section__hint">Connect Twitch in the header to set up follow, sub, raid, and cheer alerts.</p>
+        </div>
+      </section>
+    `;
+  }
+
+  const status = twitchAlertsStatusText();
+  const scopesOk = twitchHasRequiredScopes(twitchTokens.scopes);
+  const subsOk = eventSubCount >= TWITCH_ALERT_TYPES.length;
+  const statusClass = subsOk && scopesOk ? "alerts-section__status--ok" : "alerts-section__status--warn";
+  const statusLabel = subsOk && scopesOk ? "Active" : "Setup needed";
+  const chevron = showAlertsPanel ? "expand_less" : "expand_more";
+  const enableAlertsBtn =
+    subsOk && scopesOk
+      ? ""
+      : `<button type="button" id="twitch-enable-alerts-btn" class="btn btn--sm btn--twitch">Enable alerts</button>`;
+  const saveAlertsBtn = areAlertSettingsDirty()
+    ? `<button type="button" id="alerts-save-btn" class="btn btn--sm btn--primary">Save alerts</button>`
+    : "";
+  const testChevron = showAlertsTestPanel ? "expand_less" : "expand_more";
 
   return `
-    <div class="settings-section">
-      <h3 class="settings-section__title">Twitch alerts</h3>
-      <p class="syntax-help settings-section__intro">
-        Real-time follow, sub, gift sub, raid, and cheer alerts on the overlay.
-        Enable browser-source audio in Streamlabs/OBS so sounds play.
-      </p>
-      <p class="alert-settings-status ${subsOk && scopesOk ? "alert-settings-status--ok" : "alert-settings-status--warn"}">${escapeHtml(status)}</p>
-      <div class="form-actions alert-settings-actions">
-        <button type="button" id="twitch-enable-alerts-btn" class="btn btn--sm btn--twitch">Enable alerts</button>
+    <section class="alerts-section" id="alerts-section">
+      <div class="alerts-section__bar">
+        <button
+          type="button"
+          class="alerts-section__toggle"
+          id="alerts-panel-toggle"
+          aria-expanded="${showAlertsPanel}"
+          aria-controls="alerts-panel-body"
+        >
+          <span class="material-icons alerts-section__chevron" aria-hidden="true">${chevron}</span>
+          <span class="alerts-section__title">Twitch Alerts</span>
+          <span class="alerts-section__status ${statusClass}">${escapeHtml(statusLabel)}</span>
+        </button>
+        <div class="alerts-section__actions">
+          ${enableAlertsBtn}
+          <button
+            type="button"
+            id="alerts-test-toggle"
+            class="btn btn--sm btn--ghost alerts-section__test-toggle ${showAlertsTestPanel ? "alerts-section__test-toggle--open" : ""}"
+            aria-expanded="${showAlertsTestPanel}"
+            aria-controls="alerts-test-panel"
+          >
+            <span class="material-icons" aria-hidden="true">${testChevron}</span>
+            Test
+          </button>
+          ${saveAlertsBtn}
+        </div>
       </div>
-      <div class="alert-settings-list">${rows}</div>
-    </div>
+      <div class="alerts-section__test-panel" id="alerts-test-panel" ${showAlertsTestPanel ? "" : "hidden"}>
+        <p class="alerts-section__test-hint">Send a test alert to the overlay</p>
+        <div class="alerts-section__test-options">${renderAlertQuickTestButtons()}</div>
+      </div>
+      <div class="alerts-section__body" id="alerts-panel-body" ${showAlertsPanel ? "" : "hidden"}>
+        <p class="syntax-help alerts-section__intro">
+          Alerts appear on the overlay in real time. Enable browser-source audio in Streamlabs/OBS so sounds play.
+        </p>
+        <p class="alert-settings-status ${subsOk && scopesOk ? "alert-settings-status--ok" : "alert-settings-status--warn"}">${escapeHtml(status)}</p>
+        <div class="alert-settings-list">${renderAlertTypeCards()}</div>
+      </div>
+    </section>
   `;
 }
 
@@ -1318,10 +1584,93 @@ function renderSettingsModalMarkup(): string {
           <button type="button" id="settings-save-btn" class="btn btn--primary">Save</button>
           <button type="button" id="settings-cancel-btn" class="btn btn--ghost">Cancel</button>
         </div>
-        ${renderAlertSettingsMarkup()}
       </div>
     </div>
   `;
+}
+
+function bindAlertsSection(): void {
+  document.getElementById("alerts-panel-toggle")?.addEventListener("click", () => {
+    if (showAlertsPanel) {
+      alertSettingsDraft = collectAlertSettingsFromDom();
+    }
+    showAlertsPanel = !showAlertsPanel;
+    renderDashboard();
+  });
+
+  document.getElementById("alerts-test-toggle")?.addEventListener("click", () => {
+    showAlertsTestPanel = !showAlertsTestPanel;
+    renderDashboard();
+  });
+
+  const alertsSection = document.getElementById("alerts-section");
+  if (alertsSection) {
+    alertsSection.addEventListener("input", syncAlertDraftFromDom);
+    alertsSection.addEventListener("change", syncAlertDraftFromDom);
+  }
+
+  document.getElementById("alerts-save-btn")?.addEventListener("click", handleSaveAlertsClick);
+
+  document.getElementById("twitch-enable-alerts-btn")?.addEventListener("click", async () => {
+    if (!twitchTokens) return;
+
+    if (!twitchHasRequiredScopes(twitchTokens.scopes)) {
+      alert("Disconnect and reconnect Twitch to grant the required alert scopes.");
+      return;
+    }
+
+    const reg = await registerTwitchEventSub();
+    if (session?.user) {
+      eventSubCount = await countEventSubscriptions(session.user.id);
+    }
+
+    if (!reg.ok) {
+      alert(`EventSub registration incomplete.\n\n${formatEventSubRegisterError(reg)}`);
+    } else {
+      alert(`Twitch alerts enabled (${reg.created?.length ?? 0} subscriptions).`);
+    }
+
+    renderDashboard();
+  });
+
+  document.querySelectorAll(".alert-test-quick").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      if (!session?.user) return;
+
+      const alertType = (btn as HTMLElement).dataset.alertType as TwitchAlertType | undefined;
+      if (!alertType) return;
+
+      const settings = getAlertSettingsForActions();
+      const row = settings.find((setting) => setting.alert_type === alertType);
+      if (!row) return;
+
+      const ok = await insertTestAlert(session.user.id, alertType, row);
+      if (ok) {
+        btn.classList.add("alert-test-quick--sent");
+        window.setTimeout(() => btn.classList.remove("alert-test-quick--sent"), 600);
+      }
+    });
+  });
+
+  for (const alertType of TWITCH_ALERT_TYPES) {
+    const fileInput = document.getElementById(`alert-sound-file-${alertType}`) as HTMLInputElement | null;
+    const uploadBtn = document.getElementById(`alert-sound-upload-${alertType}`);
+
+    uploadBtn?.addEventListener("click", () => {
+      fileInput?.click();
+    });
+
+    fileInput?.addEventListener("change", async () => {
+      const file = fileInput.files?.[0];
+      fileInput.value = "";
+      if (!file) return;
+      await handleAlertSoundUpload(alertType, file);
+    });
+
+    document.getElementById(`alert-sound-reset-${alertType}`)?.addEventListener("click", async () => {
+      await handleAlertSoundReset(alertType);
+    });
+  }
 }
 
 function bindSettingsModal(): void {
@@ -1366,54 +1715,9 @@ function bindSettingsModal(): void {
     }
 
     tickerAccentColor = savedAccent;
-
-    if (twitchTokens && session?.user) {
-      const settings = collectAlertSettingsFromDom();
-      const savedAlerts = await saveAlertSettings(session.user.id, settings);
-      if (!savedAlerts) return;
-      alertSettingsDraft = settings;
-    }
-
     showSettingsModal = false;
     renderDashboard();
   });
-
-  document.getElementById("twitch-enable-alerts-btn")?.addEventListener("click", async () => {
-    if (!twitchTokens) return;
-
-    if (!twitchHasRequiredScopes(twitchTokens.scopes)) {
-      alert("Disconnect and reconnect Twitch to grant the required alert scopes.");
-      return;
-    }
-
-    const reg = await registerTwitchEventSub();
-    if (session?.user) {
-      eventSubCount = await countEventSubscriptions(session.user.id);
-    }
-
-    if (!reg.ok) {
-      alert(`EventSub registration incomplete.\n\n${formatEventSubRegisterError(reg)}`);
-    } else {
-      alert(`Twitch alerts enabled (${reg.created?.length ?? 0} subscriptions).`);
-    }
-
-    renderDashboard();
-  });
-
-  for (const alertType of TWITCH_ALERT_TYPES) {
-    document.getElementById(`alert-test-${alertType}`)?.addEventListener("click", async () => {
-      if (!session?.user) return;
-
-      const settings = collectAlertSettingsFromDom();
-      const row = settings.find((setting) => setting.alert_type === alertType);
-      if (!row) return;
-
-      const ok = await insertTestAlert(session.user.id, alertType as TwitchAlertType, row);
-      if (ok) {
-        alert(`Test ${formatAlertLabel(alertType)} alert sent to overlay.`);
-      }
-    });
-  }
 }
 
 function renderDashboard(): void {
@@ -1434,6 +1738,8 @@ function renderDashboard(): void {
     </header>
 
     ${renderSettingsModalMarkup()}
+
+    ${renderTwitchAlertsSection()}
 
     <section class="items-section">
       <div class="section-header">
@@ -1507,19 +1813,13 @@ function renderDashboard(): void {
 
   document.getElementById("logout-btn")!.addEventListener("click", handleLogout);
 
-  document.getElementById("settings-btn")?.addEventListener("click", async () => {
+  document.getElementById("settings-btn")?.addEventListener("click", () => {
     showSettingsModal = true;
-
-    if (session?.user && twitchTokens) {
-      await seedAlertSettings(session.user.id);
-      alertSettingsDraft = await loadAlertSettings(session.user.id);
-      eventSubCount = await countEventSubscriptions(session.user.id);
-    }
-
     renderDashboard();
   });
 
   bindSettingsModal();
+  bindAlertsSection();
 
   const spotifyConnectBtn = document.getElementById("spotify-connect-btn");
   if (spotifyConnectBtn) {
