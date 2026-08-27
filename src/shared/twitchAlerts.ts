@@ -39,6 +39,30 @@ export function formatAlertLabel(alertType: TwitchAlertType): string {
   }
 }
 
+export const ALERT_PREVIEW_VARS: Record<string, string> = {
+  user: "TestUser",
+  tier: "Tier 1",
+  total: "5",
+  viewers: "42",
+  bits: "100",
+  message: "test message",
+};
+
+export const ALERT_TYPE_META: Record<
+  TwitchAlertType,
+  { icon: string; description: string }
+> = {
+  follow: { icon: "person_add", description: "New channel followers" },
+  subscribe: { icon: "star", description: "New subscriptions" },
+  gift_sub: { icon: "card_giftcard", description: "Gifted subscriptions" },
+  raid: { icon: "groups", description: "Incoming raids" },
+  cheer: { icon: "emoji_events", description: "Bits cheers" },
+};
+
+export function previewAlertTemplate(template: string): string {
+  return applyAlertTemplate(template, ALERT_PREVIEW_VARS);
+}
+
 export interface TickerAlertSettingsRow {
   user_id: string;
   alert_type: TwitchAlertType;

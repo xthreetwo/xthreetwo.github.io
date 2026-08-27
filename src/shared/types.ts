@@ -153,6 +153,19 @@ export function formatHoldPresetLabel(preset: HoldPreset): string {
   }
 }
 
+export function formatHoldPresetShortLabel(preset: HoldPreset): string {
+  switch (preset) {
+    case "extended":
+      return "Extended";
+    case "super":
+      return "Super";
+    case "twitch_alert":
+      return "Twitch Alert";
+    default:
+      return "Default";
+  }
+}
+
 export function formatHoldLabel(seconds?: number): string {
   return formatHoldPresetLabel(presetFromSeconds(seconds));
 }

@@ -29,20 +29,10 @@ function extensionFromFile(file: File): string | null {
 export function formatAlertSoundLabel(soundUrl: string, alertType: TwitchAlertType): string {
   const defaultUrl = defaultAlertSoundUrl(alertType);
   if (!soundUrl.trim() || soundUrl === defaultUrl) {
-    return "Default clip";
+    return "--";
   }
 
-  try {
-    const pathname = soundUrl.startsWith("http")
-      ? new URL(soundUrl).pathname
-      : soundUrl;
-    const filename = pathname.split("/").pop();
-    if (filename) return filename;
-  } catch {
-    // fall through
-  }
-
-  return soundUrl.length > 36 ? `${soundUrl.slice(0, 33)}...` : soundUrl;
+  return "Preview";
 }
 
 export function isDefaultAlertSound(soundUrl: string, alertType: TwitchAlertType): boolean {

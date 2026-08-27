@@ -7,6 +7,7 @@ import {
   formatAcrallyText,
   formatHoldLabel,
   formatHoldPresetLabel,
+  formatHoldPresetShortLabel,
   formatMusicLabel,
   formatMusicText,
   formatMusicTitle,
@@ -51,7 +52,6 @@ import {
   refreshTwitchAccessToken,
   twitchExpiresAt,
   twitchHasRequiredScopes,
-  twitchRequiredScopes,
   validateTwitchToken,
   fetchChannelTitle,
   type TwitchDeviceCodeResponse,
@@ -76,6 +76,7 @@ import {
   DEFAULT_ALERT_DURATION_MS,
   DEFAULT_ALERT_TEMPLATES,
   TWITCH_ALERT_TYPES,
+  ALERT_TYPE_META,
   type TickerAlertSettingsRow,
   type TwitchAlertType,
   defaultAlertSoundUrl,
@@ -1091,13 +1092,19 @@ function render(): void {
   }
 }
 
-function renderHoldSelect(id: string, selectedSeconds?: number): string {
+function renderHoldSelect(
+  id: string,
+  selectedSeconds?: number,
+  shortLabels = false
+): string {
   const selected = presetFromSeconds(selectedSeconds);
   const options = (Object.keys(HOLD_PRESETS) as HoldPreset[])
-    .map(
-      (preset) =>
-        `<option value="${preset}" ${selected === preset ? "selected" : ""}>${formatHoldPresetLabel(preset)}</option>`
-    )
+    .map((preset) => {
+      const label = shortLabels
+        ? formatHoldPresetShortLabel(preset)
+        : formatHoldPresetLabel(preset);
+      return `<option value="${preset}" ${selected === preset ? "selected" : ""}>${label}</option>`;
+    })
     .join("");
   return `
     <select id="${id}" class="hold-select">
@@ -1126,12 +1133,12 @@ function renderSectionHeaderActions(): string {
       ${previewBtn}
       <details class="add-dropdown" id="add-dropdown">
         <summary class="btn btn--success add-dropdown__summary">
-          Add item
+          Add Item
           <span class="material-icons add-dropdown__chevron" aria-hidden="true">expand_more</span>
         </summary>
         <div class="add-dropdown__menu">
           <button type="button" class="add-dropdown__option" data-add-type="custom">
-            <span class="add-dropdown__option-title">Custom text</span>
+            <span class="add-dropdown__option-title">Custom Text</span>
             <span class="add-dropdown__option-desc">Manual ticker message</span>
           </button>
           <button type="button" class="add-dropdown__option add-dropdown__option--acrally" data-add-type="acrally">
@@ -1272,6 +1279,26 @@ function getAlertSettingsForActions(): TickerAlertSettingsRow[] {
   return alertSettingsDraft;
 }
 
+let alertSoundPreviewAudio: HTMLAudioElement | null = null;
+
+function previewAlertSound(soundUrl: string): void {
+  const trimmed = soundUrl.trim();
+  if (!trimmed) return;
+
+  try {
+    if (alertSoundPreviewAudio) {
+      alertSoundPreviewAudio.pause();
+      alertSoundPreviewAudio.currentTime = 0;
+    }
+    alertSoundPreviewAudio = new Audio(trimmed);
+    alertSoundPreviewAudio.play().catch((error) => {
+      console.warn("Sound preview could not play:", error);
+    });
+  } catch (error) {
+    console.warn("Sound preview failed:", error);
+  }
+}
+
 function syncAlertDraftFromDom(): void {
   if (!showAlertsPanel || !session?.user?.id) return;
   alertSettingsDraft = normalizeAlertSettings(collectAlertSettingsFromDom(), session.user.id);
@@ -1293,7 +1320,7 @@ function updateAlertsSaveButtonState(): void {
     btn.type = "button";
     btn.id = "alerts-save-btn";
     btn.className = "btn btn--sm btn--primary";
-    btn.textContent = "Save alerts";
+    btn.textContent = "Save Alerts";
     btn.addEventListener("click", handleSaveAlertsClick);
     actions.appendChild(btn);
   }
@@ -1378,29 +1405,22 @@ async function handleAlertSoundReset(alertType: TwitchAlertType): Promise<void> 
 function renderAlertQuickTestButtons(): string {
   return TWITCH_ALERT_TYPES.map((alertType) => {
     const label = formatAlertLabel(alertType);
-    return `<button type="button" class="btn btn--sm btn--ghost alert-test-quick" data-alert-type="${alertType}" title="Test ${label}">${escapeHtml(label)}</button>`;
+    return `
+      <button
+        type="button"
+        class="alert-test-chip alert-test-quick"
+        data-alert-type="${alertType}"
+        title="Test ${label}"
+      >
+        ${escapeHtml(label)}
+      </button>
+    `;
   }).join("");
-}
-
-function twitchAlertsStatusText(): string {
-  if (!twitchTokens) return "";
-
-  const scopesOk = twitchHasRequiredScopes(twitchTokens.scopes);
-  const subsOk = eventSubCount >= TWITCH_ALERT_TYPES.length;
-
-  if (!scopesOk) {
-    return `Reconnect Twitch to grant alert scopes (${twitchRequiredScopes().join(", ")}).`;
-  }
-
-  if (!subsOk) {
-    return `EventSub not fully registered (${eventSubCount}/${TWITCH_ALERT_TYPES.length}). Click Enable alerts.`;
-  }
-
-  return `Twitch alerts active (${eventSubCount} EventSub subscriptions).`;
 }
 
 function renderAlertTypeCards(): string {
   return TWITCH_ALERT_TYPES.map((alertType) => {
+    const meta = ALERT_TYPE_META[alertType];
     const setting =
       alertSettingsDraft.find((row) => row.alert_type === alertType) ?? {
         user_id: session?.user?.id ?? "",
@@ -1410,25 +1430,47 @@ function renderAlertTypeCards(): string {
         sound_url: defaultAlertSoundUrl(alertType),
         duration_ms: DEFAULT_ALERT_DURATION_MS,
       };
+    const disabledClass = setting.enabled ? "" : " alert-settings-card--disabled";
 
     return `
-      <div class="alert-settings-card" data-alert-type="${alertType}">
-        <div class="alert-settings-card__header">
-          <label class="alert-settings-card__toggle">
+      <article class="alert-settings-card${disabledClass}" data-alert-type="${alertType}">
+        <header class="alert-settings-card__header">
+          <div class="alert-settings-card__identity">
+            <span class="alert-settings-card__icon" aria-hidden="true">
+              <span class="material-icons">${meta.icon}</span>
+            </span>
+            <div class="alert-settings-card__titles">
+              <h3 class="alert-settings-card__name">${escapeHtml(formatAlertLabel(alertType))}</h3>
+            </div>
+          </div>
+          <label class="switch alert-settings-card__switch" title="Enable ${escapeHtml(formatAlertLabel(alertType))}">
             <input type="checkbox" id="alert-enabled-${alertType}" ${setting.enabled ? "checked" : ""} />
-            <span>${escapeHtml(formatAlertLabel(alertType))}</span>
+            <span class="switch__track"></span>
           </label>
-        </div>
-        <div class="form-group">
-          <label for="alert-template-${alertType}">Template</label>
+        </header>
+
+        <div class="form-group alert-settings-card__field">
+          <label for="alert-template-${alertType}">Message template</label>
           <textarea id="alert-template-${alertType}" rows="2" spellcheck="false">${escapeHtml(setting.template)}</textarea>
-          <p class="syntax-help">Variables: <code>{user}</code> <code>{tier}</code> <code>{total}</code> <code>{viewers}</code> <code>{bits}</code> <code>{message}</code></p>
         </div>
-        <div class="form-group">
-          <label>Sound</label>
-          <div class="alert-sound-upload">
-            <span class="alert-sound-upload__label" id="alert-sound-label-${alertType}">${escapeHtml(formatAlertSoundLabel(setting.sound_url, alertType))}</span>
-            <div class="alert-sound-upload__actions">
+
+        <div class="alert-settings-card__meta">
+          <div class="alert-settings-card__meta-item alert-settings-card__meta-item--duration">
+            <label for="alert-duration-${alertType}">Duration</label>
+            ${renderHoldSelect(`alert-duration-${alertType}`, setting.duration_ms / 1000)}
+          </div>
+          <div class="alert-settings-card__meta-item alert-settings-card__meta-item--sound">
+            <span class="alert-settings-card__meta-label">Sound</span>
+            <div class="alert-sound-row">
+              <span class="material-icons alert-sound-row__icon" aria-hidden="true">volume_up</span>
+              <button
+                type="button"
+                class="alert-sound-row__preview"
+                id="alert-sound-label-${alertType}"
+                title="Preview sound"
+              >
+                ${escapeHtml(formatAlertSoundLabel(setting.sound_url, alertType))}
+              </button>
               <input
                 type="file"
                 id="alert-sound-file-${alertType}"
@@ -1440,18 +1482,13 @@ function renderAlertTypeCards(): string {
               ${
                 isDefaultAlertSound(setting.sound_url, alertType)
                   ? ""
-                  : `<button type="button" class="btn btn--sm btn--ghost" id="alert-sound-reset-${alertType}">Use default</button>`
+                  : `<button type="button" class="btn btn--sm btn--ghost" id="alert-sound-reset-${alertType}">Use Default</button>`
               }
             </div>
+            <input type="hidden" id="alert-sound-${alertType}" value="${escapeHtml(setting.sound_url)}" />
           </div>
-          <input type="hidden" id="alert-sound-${alertType}" value="${escapeHtml(setting.sound_url)}" />
-          <p class="syntax-help">MP3, WAV, OGG, WebM, or M4A — max 5 MB. Saved automatically on upload.</p>
         </div>
-        <div class="form-group">
-          <label for="alert-duration-${alertType}">Duration</label>
-          ${renderHoldSelect(`alert-duration-${alertType}`, setting.duration_ms / 1000)}
-        </div>
-      </div>
+      </article>
     `;
   }).join("");
 }
@@ -1461,16 +1498,20 @@ function renderTwitchAlertsSection(): string {
 
   if (!twitchTokens) {
     return `
-      <section class="alerts-section alerts-section--compact">
-        <div class="alerts-section__bar">
-          ${renderTwitchBrandMarkup()}
-          <p class="alerts-section__hint">Connect Twitch in the header to set up follow, sub, raid, and cheer alerts.</p>
+      <section class="alerts-section alerts-section--twitch alerts-section--disconnected">
+        <div class="alerts-section__empty">
+          <span class="alerts-section__empty-icon" aria-hidden="true">
+            ${renderTwitchIconMarkup("alerts-section__empty-logo")}
+          </span>
+          <div class="alerts-section__empty-copy">
+            <h2 class="alerts-section__empty-title">Twitch Alerts</h2>
+            <p>Connect Twitch in the header to show follow, sub, raid, cheer, and gift alerts on your overlay.</p>
+          </div>
         </div>
       </section>
     `;
   }
 
-  const status = twitchAlertsStatusText();
   const scopesOk = twitchHasRequiredScopes(twitchTokens.scopes);
   const subsOk = eventSubCount >= TWITCH_ALERT_TYPES.length;
   const statusClass = subsOk && scopesOk ? "alerts-section__status--ok" : "alerts-section__status--warn";
@@ -1479,13 +1520,13 @@ function renderTwitchAlertsSection(): string {
   const enableAlertsBtn =
     subsOk && scopesOk
       ? ""
-      : `<button type="button" id="twitch-enable-alerts-btn" class="btn btn--sm btn--twitch">Enable alerts</button>`;
+      : `<button type="button" id="twitch-enable-alerts-btn" class="btn btn--sm btn--twitch">Enable Alerts</button>`;
   const saveAlertsBtn = areAlertSettingsDirty()
-    ? `<button type="button" id="alerts-save-btn" class="btn btn--sm btn--primary">Save alerts</button>`
+    ? `<button type="button" id="alerts-save-btn" class="btn btn--sm btn--primary">Save Alerts</button>`
     : "";
 
   return `
-    <section class="alerts-section" id="alerts-section">
+    <section class="alerts-section alerts-section--twitch" id="alerts-section">
       <div class="alerts-section__bar">
         <button
           type="button"
@@ -1495,6 +1536,7 @@ function renderTwitchAlertsSection(): string {
           aria-controls="alerts-panel-body"
         >
           <span class="material-icons alerts-section__chevron" aria-hidden="true">${chevron}</span>
+          <span class="alerts-section__brand" aria-hidden="true">${renderTwitchIconMarkup("alerts-section__brand-icon")}</span>
           <span class="alerts-section__title">Twitch Alerts</span>
           <span class="alerts-section__status ${statusClass}">${escapeHtml(statusLabel)}</span>
         </button>
@@ -1516,6 +1558,7 @@ function renderTwitchAlertsSection(): string {
               aria-expanded="${showAlertsTestPanel}"
               aria-controls="alerts-test-panel"
             >
+              <span class="material-icons" aria-hidden="true">science</span>
               Test Alerts
             </button>
             ${saveAlertsBtn}
@@ -1523,11 +1566,21 @@ function renderTwitchAlertsSection(): string {
         </div>
       </div>
       <div class="alerts-section__body" id="alerts-panel-body" ${showAlertsPanel ? "" : "hidden"}>
-        <p class="syntax-help alerts-section__intro">
-          Alerts appear on the overlay in real time. Enable browser-source audio in Streamlabs/OBS so sounds play.
+        <div class="alerts-section__intro">
+          <p class="syntax-help alerts-section__vars">
+            Template variables:
+            <code>{user}</code>
+            <code>{tier}</code>
+            <code>{total}</code>
+            <code>{viewers}</code>
+            <code>{bits}</code>
+            <code>{message}</code>
+          </p>
+        </div>
+        <div class="alert-settings-grid">${renderAlertTypeCards()}</div>
+        <p class="syntax-help syntax-help--footer">
+          Custom sounds: MP3, WAV, OGG, WebM, or M4A up to 5 MB. Uploads save automatically.
         </p>
-        <p class="alert-settings-status ${subsOk && scopesOk ? "alert-settings-status--ok" : "alert-settings-status--warn"}">${escapeHtml(status)}</p>
-        <div class="alert-settings-list">${renderAlertTypeCards()}</div>
       </div>
     </section>
   `;
@@ -1606,7 +1659,14 @@ function bindAlertsSection(): void {
   const alertsSection = document.getElementById("alerts-section");
   if (alertsSection) {
     alertsSection.addEventListener("input", syncAlertDraftFromDom);
-    alertsSection.addEventListener("change", syncAlertDraftFromDom);
+    alertsSection.addEventListener("change", (event) => {
+      syncAlertDraftFromDom();
+      const target = event.target as HTMLElement;
+      if (target instanceof HTMLInputElement && target.id.startsWith("alert-enabled-")) {
+        const card = target.closest(".alert-settings-card");
+        card?.classList.toggle("alert-settings-card--disabled", !target.checked);
+      }
+    });
   }
 
   document.getElementById("alerts-save-btn")?.addEventListener("click", handleSaveAlertsClick);
@@ -1646,8 +1706,8 @@ function bindAlertsSection(): void {
 
       const ok = await insertTestAlert(session.user.id, alertType, row);
       if (ok) {
-        btn.classList.add("alert-test-quick--sent");
-        window.setTimeout(() => btn.classList.remove("alert-test-quick--sent"), 600);
+        btn.classList.add("alert-test-chip--sent");
+        window.setTimeout(() => btn.classList.remove("alert-test-chip--sent"), 600);
       }
     });
   });
@@ -1669,6 +1729,11 @@ function bindAlertsSection(): void {
 
     document.getElementById(`alert-sound-reset-${alertType}`)?.addEventListener("click", async () => {
       await handleAlertSoundReset(alertType);
+    });
+
+    document.getElementById(`alert-sound-label-${alertType}`)?.addEventListener("click", () => {
+      const soundInput = document.getElementById(`alert-sound-${alertType}`) as HTMLInputElement | null;
+      if (soundInput?.value) previewAlertSound(soundInput.value);
     });
   }
 }
@@ -1731,9 +1796,18 @@ function renderDashboard(): void {
         ${renderSpotifyStatusMarkup()}
         ${renderTwitchStatusMarkup()}
         <button type="button" id="settings-btn" class="btn btn--icon-action" aria-label="Settings" title="Settings">
-          <span class="material-icons" aria-hidden="true">settings</span>
+          <span class="material-icons" aria-hidden="true">palette</span>
         </button>
-        <button id="logout-btn" class="btn btn--ghost">Admin sign out</button>
+        <span class="admin-header__divider" aria-hidden="true"></span>
+        <button
+          type="button"
+          id="logout-btn"
+          class="btn btn--icon-action"
+          aria-label="Admin Sign Out"
+          title="Admin Sign Out"
+        >
+          <span class="material-icons" aria-hidden="true">logout</span>
+        </button>
       </div>
     </header>
 
@@ -1797,7 +1871,7 @@ function renderDashboard(): void {
         </form>
       </section>
 
-      ${items.length === 0 && !showAddForm && !showAddAcrallyForm ? '<div class="empty-state">No items yet. Use <strong>Add item</strong> to create your first ticker message.</div>' : ""}
+      ${items.length === 0 && !showAddForm && !showAddAcrallyForm ? '<div class="empty-state">No items yet. Use <strong>Add Item</strong> to create your first ticker message.</div>' : ""}
       <ul class="item-list" id="item-list">
         ${items.map((item, index) => renderItemCard(item, index)).join("")}
       </ul>
@@ -2334,22 +2408,25 @@ function startAcrallyEdit(id: string, item: TickerItem): void {
 
   setCardEditActions(card);
 
+  body.querySelector(".item-card__hold-edit")?.remove();
+
   const holdLabel = document.createElement("label");
   holdLabel.className = "item-card__hold-label";
   holdLabel.textContent = "Display time";
 
   const holdSelect = createHoldSelectElement(item.hold_seconds);
 
-  const editNote = document.createElement("p");
-  editNote.className = "item-card__acrally-edit-note";
-  editNote.textContent = "Stage and rank can be updated directly on the card.";
-
   const editFields = document.createElement("div");
-  editFields.className = "item-card__edit-fields";
-  editFields.append(editNote, holdLabel, holdSelect);
+  editFields.className = "item-card__edit-fields item-card__hold-edit";
+  editFields.append(holdLabel, holdSelect);
 
-  body.innerHTML = "";
-  body.append(editFields);
+  const quick = body.querySelector(".item-card__acrally-quick");
+  if (quick) {
+    quick.after(editFields);
+  } else {
+    body.append(editFields);
+  }
+
   holdSelect.focus();
 
   card.querySelector(".save-edit")!.addEventListener("click", async () => {
