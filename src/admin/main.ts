@@ -9,9 +9,12 @@ import {
   formatMusicLabel,
   formatMusicText,
   formatMusicTitle,
+  formatStreamTitleText,
+  formatStreamTitleValue,
   getItemDisplayText,
   isAcrallyItem,
   isMusicItem,
+  isStreamTitleItem,
   parseAcrallyStageRanks,
   presetFromSeconds,
   secondsFromPreset,
@@ -22,17 +25,32 @@ import {
   getDefaultAcrallyStage,
   renderAcrallyStageOptions,
 } from "../shared/acrallyStages";
+import { renderTwitchIconMarkup } from "../shared/twitchIcon";
 import {
   clearSpotifyCallbackParams,
   exchangeSpotifyCode,
   fetchCurrentlyPlaying,
   isSpotifyConfigured,
+  isSpotifyOAuthCallback,
   isSpotifyTokenExpired,
   parseSpotifyCallbackCode,
   refreshSpotifyAccessToken,
   spotifyExpiresAt,
   startSpotifyAuth,
 } from "../lib/spotify";
+import {
+  clearTwitchCallbackParams,
+  exchangeTwitchCode,
+  fetchChannelTitle,
+  isTwitchConfigured,
+  isTwitchOAuthCallback,
+  isTwitchTokenExpired,
+  parseTwitchCallbackCode,
+  refreshTwitchAccessToken,
+  startTwitchAuth,
+  twitchExpiresAt,
+  validateTwitchToken,
+} from "../lib/twitch";
 import type { Session } from "@supabase/supabase-js";
 
 interface SpotifyTokenRow {
@@ -41,7 +59,15 @@ interface SpotifyTokenRow {
   expires_at: string;
 }
 
+interface TwitchTokenRow {
+  broadcaster_id: string;
+  access_token: string;
+  refresh_token: string;
+  expires_at: string;
+}
+
 const SPOTIFY_POLL_MS = 5000;
+const TWITCH_POLL_MS = 30000;
 
 const app = document.getElementById("app")!;
 
@@ -52,6 +78,8 @@ let showAddAcrallyForm = false;
 let draggedId: string | null = null;
 let spotifyTokens: SpotifyTokenRow | null = null;
 let spotifyPollTimer: ReturnType<typeof setInterval> | null = null;
+let twitchTokens: TwitchTokenRow | null = null;
+let twitchPollTimer: ReturnType<typeof setInterval> | null = null;
 
 // --- Auth ---
 
@@ -60,9 +88,10 @@ async function init(): Promise<void> {
   session = data.session;
 
   if (session) {
-    await handleSpotifyOAuthCallbackIfPresent();
+    await handleOAuthCallbacksIfPresent();
     await loadItems();
     await loadSpotifyTokens();
+    await loadTwitchTokens();
   }
 
   render();
@@ -70,11 +99,14 @@ async function init(): Promise<void> {
   supabase.auth.onAuthStateChange(async (_event, newSession) => {
     session = newSession;
     stopSpotifyPoller();
+    stopTwitchPoller();
     if (newSession) {
       await loadItems();
       await loadSpotifyTokens();
+      await loadTwitchTokens();
     } else {
       spotifyTokens = null;
+      twitchTokens = null;
     }
     render();
   });
@@ -348,6 +380,266 @@ function hasActiveMusicItems(): boolean {
   return items.some((item) => isMusicItem(item) && item.active);
 }
 
+async function addStreamTitleItem(hold_seconds: number): Promise<void> {
+  const text = formatStreamTitleText("");
+
+  const { error } = await supabase.from("ticker_items").insert({
+    text,
+    sort_order: nextSortOrder(),
+    active: true,
+    hold_seconds,
+    item_type: "stream_title",
+    twitch_stream_title: "",
+  });
+
+  if (error) {
+    alert(`Failed to add stream title item: ${error.message}`);
+    return;
+  }
+
+  await loadItems();
+  renderDashboard();
+}
+
+async function updateStreamTitleItemFields(id: string, title: string): Promise<boolean> {
+  const item = items.find((i) => i.id === id);
+  if (!item || !isStreamTitleItem(item)) return false;
+
+  const prevTitle = (item.twitch_stream_title ?? "").trim();
+  if (title === prevTitle) return false;
+
+  const text = formatStreamTitleText(title);
+
+  const { error } = await supabase
+    .from("ticker_items")
+    .update({
+      twitch_stream_title: title,
+      text,
+    })
+    .eq("id", id);
+
+  if (error) {
+    console.error("Failed to update stream title item:", error.message);
+    return false;
+  }
+
+  item.twitch_stream_title = title;
+  item.text = text;
+
+  const previewEl = document.getElementById(`text-${id}`);
+  if (previewEl) {
+    previewEl.innerHTML = renderStreamTitleItemPreview(item);
+  }
+
+  return true;
+}
+
+function hasActiveStreamTitleItems(): boolean {
+  return items.some((item) => isStreamTitleItem(item) && item.active);
+}
+
+async function loadTwitchTokens(): Promise<void> {
+  if (!session?.user) {
+    twitchTokens = null;
+    return;
+  }
+
+  const { data, error } = await supabase
+    .from("twitch_tokens")
+    .select("broadcaster_id, access_token, refresh_token, expires_at")
+    .eq("user_id", session.user.id)
+    .maybeSingle();
+
+  if (error) {
+    console.error("Failed to load Twitch tokens:", error.message);
+    twitchTokens = null;
+    return;
+  }
+
+  twitchTokens = data ?? null;
+}
+
+async function saveTwitchTokens(
+  accessToken: string,
+  refreshToken: string,
+  expiresAt: string,
+  broadcasterId: string
+): Promise<boolean> {
+  if (!session?.user) return false;
+
+  const { error } = await supabase.from("twitch_tokens").upsert({
+    user_id: session.user.id,
+    broadcaster_id: broadcasterId,
+    access_token: accessToken,
+    refresh_token: refreshToken,
+    expires_at: expiresAt,
+  });
+
+  if (error) {
+    alert(`Failed to save Twitch connection: ${error.message}`);
+    return false;
+  }
+
+  twitchTokens = {
+    broadcaster_id: broadcasterId,
+    access_token: accessToken,
+    refresh_token: refreshToken,
+    expires_at: expiresAt,
+  };
+
+  return true;
+}
+
+async function disconnectTwitch(): Promise<void> {
+  stopTwitchPoller();
+
+  if (session?.user) {
+    const { error } = await supabase
+      .from("twitch_tokens")
+      .delete()
+      .eq("user_id", session.user.id);
+
+    if (error) {
+      alert(`Failed to disconnect Twitch: ${error.message}`);
+      return;
+    }
+  }
+
+  twitchTokens = null;
+  renderDashboard();
+}
+
+async function handleOAuthCallbacksIfPresent(): Promise<void> {
+  if (isTwitchOAuthCallback()) {
+    await handleTwitchOAuthCallbackIfPresent();
+    return;
+  }
+
+  if (isSpotifyOAuthCallback()) {
+    await handleSpotifyOAuthCallbackIfPresent();
+  }
+}
+
+async function handleTwitchOAuthCallbackIfPresent(): Promise<void> {
+  const code = parseTwitchCallbackCode();
+  if (!code) return;
+
+  clearTwitchCallbackParams();
+
+  const tokenResponse = await exchangeTwitchCode(code);
+  if (!tokenResponse) {
+    alert("Twitch authorization failed. Please try connecting again.");
+    return;
+  }
+
+  const refreshToken = tokenResponse.refresh_token ?? twitchTokens?.refresh_token;
+  if (!refreshToken) {
+    alert("Twitch did not return a refresh token. Disconnect and connect again.");
+    return;
+  }
+
+  const validated = await validateTwitchToken(tokenResponse.access_token);
+  if (!validated?.user_id) {
+    alert("Twitch authorization failed. Could not verify your account.");
+    return;
+  }
+
+  await saveTwitchTokens(
+    tokenResponse.access_token,
+    refreshToken,
+    twitchExpiresAt(tokenResponse.expires_in),
+    validated.user_id
+  );
+}
+
+async function ensureTwitchAccessToken(): Promise<string | null> {
+  if (!twitchTokens) return null;
+
+  if (!isTwitchTokenExpired(twitchTokens.expires_at)) {
+    return twitchTokens.access_token;
+  }
+
+  const refreshed = await refreshTwitchAccessToken(twitchTokens.refresh_token);
+  if (!refreshed) {
+    console.error("Twitch token refresh failed");
+    return null;
+  }
+
+  const refreshToken = refreshed.refresh_token ?? twitchTokens.refresh_token;
+  const expiresAt = twitchExpiresAt(refreshed.expires_in);
+  const saved = await saveTwitchTokens(
+    refreshed.access_token,
+    refreshToken,
+    expiresAt,
+    twitchTokens.broadcaster_id
+  );
+  if (!saved) return null;
+
+  return refreshed.access_token;
+}
+
+async function pollTwitchStreamTitle(): Promise<void> {
+  if (!twitchTokens || !hasActiveStreamTitleItems()) return;
+
+  const accessToken = await ensureTwitchAccessToken();
+  if (!accessToken) return;
+
+  try {
+    const title = await fetchChannelTitle(accessToken, twitchTokens.broadcaster_id);
+    const streamTitle = title ?? "";
+
+    for (const item of items) {
+      if (!isStreamTitleItem(item) || !item.active) continue;
+      await updateStreamTitleItemFields(item.id, streamTitle);
+    }
+  } catch (error) {
+    console.error("Twitch poll failed:", error);
+  }
+}
+
+function startTwitchPoller(): void {
+  stopTwitchPoller();
+
+  if (!twitchTokens || !hasActiveStreamTitleItems()) return;
+
+  twitchPollTimer = window.setInterval(() => {
+    pollTwitchStreamTitle();
+  }, TWITCH_POLL_MS);
+
+  pollTwitchStreamTitle();
+}
+
+function stopTwitchPoller(): void {
+  if (twitchPollTimer !== null) {
+    clearInterval(twitchPollTimer);
+    twitchPollTimer = null;
+  }
+}
+
+function renderTwitchStatusMarkup(): string {
+  if (!isTwitchConfigured()) {
+    return `
+      <div class="twitch-panel twitch-panel--disabled">
+        <span class="twitch-panel__label">Twitch</span>
+        <span class="twitch-panel__status">Add VITE_TWITCH_CLIENT_ID to enable</span>
+      </div>
+    `;
+  }
+
+  const connected = Boolean(twitchTokens);
+  const statusText = connected ? "Connected" : "Not connected";
+  const buttonLabel = connected ? "Disconnect Twitch" : "Connect Twitch";
+  const buttonId = connected ? "twitch-disconnect-btn" : "twitch-connect-btn";
+
+  return `
+    <div class="twitch-panel ${connected ? "twitch-panel--connected" : ""}">
+      <span class="twitch-panel__label">Twitch</span>
+      <span class="twitch-panel__status">${statusText}</span>
+      <button type="button" id="${buttonId}" class="btn btn--sm ${connected ? "btn--ghost" : "btn--twitch"}">${buttonLabel}</button>
+    </div>
+  `;
+}
+
 async function loadSpotifyTokens(): Promise<void> {
   if (!session?.user) {
     spotifyTokens = null;
@@ -599,6 +891,7 @@ function renderAddFormButtons(): string {
       <button type="button" id="show-add-btn" class="btn btn--success">Add Item</button>
       <button type="button" id="show-add-acrally-btn" class="btn btn--acrally">Add AC Rally Item</button>
       <button type="button" id="show-add-music-btn" class="btn btn--music">Add Music Item</button>
+      <button type="button" id="show-add-stream-title-btn" class="btn btn--twitch">Add Stream Title Item</button>
     </div>
   `;
 }
@@ -622,12 +915,14 @@ function updateAcrallyAddPreview(): void {
 
 function renderDashboard(): void {
   stopSpotifyPoller();
+  stopTwitchPoller();
 
   app.innerHTML = `
     <header class="admin-header">
       <h1>Ticker Admin</h1>
       <div class="admin-header__actions">
         ${renderSpotifyStatusMarkup()}
+        ${renderTwitchStatusMarkup()}
         <a href="/overlay.html" target="_blank" rel="noopener noreferrer" class="btn btn--secondary">Preview Overlay</a>
         <button id="logout-btn" class="btn btn--ghost">Sign Out</button>
       </div>
@@ -689,7 +984,7 @@ function renderDashboard(): void {
         </form>
       </section>
 
-      ${items.length === 0 && !showAddForm && !showAddAcrallyForm ? '<div class="empty-state">No items yet. Click Add Item, Add AC Rally Item, or Add Music Item to get started.</div>' : ""}
+      ${items.length === 0 && !showAddForm && !showAddAcrallyForm ? '<div class="empty-state">No items yet. Click Add Item, Add AC Rally Item, Add Music Item, or Add Stream Title Item to get started.</div>' : ""}
       <ul class="item-list" id="item-list">
         ${items.map((item, index) => renderItemCard(item, index)).join("")}
       </ul>
@@ -719,6 +1014,20 @@ function renderDashboard(): void {
     });
   }
 
+  const twitchConnectBtn = document.getElementById("twitch-connect-btn");
+  if (twitchConnectBtn) {
+    twitchConnectBtn.addEventListener("click", () => {
+      startTwitchAuth();
+    });
+  }
+
+  const twitchDisconnectBtn = document.getElementById("twitch-disconnect-btn");
+  if (twitchDisconnectBtn) {
+    twitchDisconnectBtn.addEventListener("click", () => {
+      disconnectTwitch();
+    });
+  }
+
   const showAddBtn = document.getElementById("show-add-btn");
   if (showAddBtn) {
     showAddBtn.addEventListener("click", () => {
@@ -743,6 +1052,13 @@ function renderDashboard(): void {
   if (showAddMusicBtn) {
     showAddMusicBtn.addEventListener("click", async () => {
       await addMusicItem(DEFAULT_HOLD_SECONDS);
+    });
+  }
+
+  const showAddStreamTitleBtn = document.getElementById("show-add-stream-title-btn");
+  if (showAddStreamTitleBtn) {
+    showAddStreamTitleBtn.addEventListener("click", async () => {
+      await addStreamTitleItem(DEFAULT_HOLD_SECONDS);
     });
   }
 
@@ -804,6 +1120,7 @@ function renderDashboard(): void {
   bindItemEvents();
   bindDragReorder();
   startSpotifyPoller();
+  startTwitchPoller();
 }
 
 function renderItemCard(item: TickerItem, index: number): string {
@@ -813,6 +1130,10 @@ function renderItemCard(item: TickerItem, index: number): string {
 
   if (isMusicItem(item)) {
     return renderMusicItemCard(item, index);
+  }
+
+  if (isStreamTitleItem(item)) {
+    return renderStreamTitleItemCard(item, index);
   }
 
   return `
@@ -929,6 +1250,47 @@ function renderMusicItemCard(item: TickerItem, index: number): string {
           </div>
         </div>
         <div class="item-card__meta item-card__meta--music">
+          ${statusNote} · Display: ${formatHoldLabel(item.hold_seconds)} · ${item.active ? "Active" : "Inactive"}
+        </div>
+      </div>
+      <div class="item-card__actions">
+        <label class="toggle toggle--active">
+          <input type="checkbox" class="toggle-active" ${item.active ? "checked" : ""} />
+          <span>Active</span>
+        </label>
+        <div class="item-card__action-buttons">
+          <button type="button" class="btn btn--danger btn--sm delete-btn">Delete</button>
+        </div>
+      </div>
+    </li>
+  `;
+}
+
+function renderStreamTitleItemPreview(item: TickerItem): string {
+  const titleHtml = renderHighlights(formatStreamTitleValue(item.twitch_stream_title ?? ""));
+  return `${renderTwitchIconMarkup("item-card__twitch-icon")}${titleHtml}`;
+}
+
+function renderStreamTitleItemCard(item: TickerItem, index: number): string {
+  const twitchReady = Boolean(twitchTokens);
+  const statusNote = twitchReady
+    ? "Updates while this admin tab is open"
+    : "Connect Twitch above to sync stream title";
+
+  return `
+    <li class="item-card item-card--stream-title ${item.active ? "" : "item-card--inactive"}" data-id="${item.id}">
+      <div class="item-card__drag-handle" draggable="true" title="Drag to reorder" aria-label="Drag to reorder">⠿</div>
+      <div class="item-card__slot">${index + 1}</div>
+      <div class="item-card__body">
+        <div class="item-card__stream-title-header">
+          <span class="badge badge--twitch">Stream Title</span>
+        </div>
+        <div class="item-card__preview item-card__preview--stream-title">
+          <div class="item-card__stream-title-preview-row ticker-preview-text" id="text-${item.id}">
+            ${renderStreamTitleItemPreview(item)}
+          </div>
+        </div>
+        <div class="item-card__meta item-card__meta--stream-title">
           ${statusNote} · Display: ${formatHoldLabel(item.hold_seconds)} · ${item.active ? "Active" : "Inactive"}
         </div>
       </div>
@@ -1066,6 +1428,8 @@ function startEdit(id: string): void {
   if (!item) return;
 
   if (isMusicItem(item)) return;
+
+  if (isStreamTitleItem(item)) return;
 
   if (isAcrallyItem(item)) {
     startAcrallyEdit(id, item);

@@ -44,6 +44,30 @@ export type Database = {
           expires_at: string;
         }>;
       };
+      twitch_tokens: {
+        Row: {
+          user_id: string;
+          broadcaster_id: string;
+          access_token: string;
+          refresh_token: string;
+          expires_at: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          user_id: string;
+          broadcaster_id: string;
+          access_token: string;
+          refresh_token: string;
+          expires_at: string;
+        };
+        Update: Partial<{
+          broadcaster_id: string;
+          access_token: string;
+          refresh_token: string;
+          expires_at: string;
+        }>;
+      };
     };
   };
 };

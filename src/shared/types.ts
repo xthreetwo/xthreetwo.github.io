@@ -1,6 +1,6 @@
 import { formatAcrallyRankLabel, formatAcrallyStageLabel } from "./acrallyStages";
 
-export type TickerItemType = "standard" | "acrally" | "music";
+export type TickerItemType = "standard" | "acrally" | "music" | "stream_title";
 
 export interface TickerItem {
   id: string;
@@ -15,6 +15,7 @@ export interface TickerItem {
   music_track?: string | null;
   music_artist?: string | null;
   music_album_art_url?: string | null;
+  twitch_stream_title?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -25,6 +26,10 @@ export function isAcrallyItem(item: TickerItem): boolean {
 
 export function isMusicItem(item: TickerItem): boolean {
   return item.item_type === "music";
+}
+
+export function isStreamTitleItem(item: TickerItem): boolean {
+  return item.item_type === "stream_title";
 }
 
 export function formatAcrallyText(stage: string, rank: string): string {
@@ -54,6 +59,15 @@ export function formatMusicText(track: string, artist: string): string {
   return `${formatMusicLabel()} ${formatMusicTitle(track, artist)}`;
 }
 
+export function formatStreamTitleValue(title: string): string {
+  const trimmed = title.trim();
+  return trimmed ? `**${trimmed}**` : "—";
+}
+
+export function formatStreamTitleText(title: string): string {
+  return formatStreamTitleValue(title);
+}
+
 export function getItemDisplayText(item: TickerItem): string {
   if (isAcrallyItem(item)) {
     const stage = item.acrally_stage?.trim() || "";
@@ -63,6 +77,10 @@ export function getItemDisplayText(item: TickerItem): string {
 
   if (isMusicItem(item)) {
     return formatMusicText(item.music_track ?? "", item.music_artist ?? "");
+  }
+
+  if (isStreamTitleItem(item)) {
+    return formatStreamTitleText(item.twitch_stream_title ?? "");
   }
 
   return item.text;
@@ -152,6 +170,7 @@ export type TickerItemInsert = Pick<
   | "music_track"
   | "music_artist"
   | "music_album_art_url"
+  | "twitch_stream_title"
 >;
 export type TickerItemUpdate = Partial<TickerItemInsert>;
 

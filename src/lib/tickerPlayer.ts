@@ -2,11 +2,14 @@ import { renderHighlights } from "./parseHighlights";
 import {
   formatMusicLabel,
   formatMusicTitle,
+  formatStreamTitleValue,
   getItemDisplayText,
   getItemHoldMs,
   isMusicItem,
+  isStreamTitleItem,
   type TickerItem,
 } from "../shared/types";
+import { renderTwitchIconMarkup } from "../shared/twitchIcon";
 
 export const TICKER_ENTER_MS = 1000;
 export const TICKER_EXIT_MS = 1000;
@@ -70,6 +73,14 @@ async function playItem(
     contentHtml = `
       <span class="ticker__item-text">${labelHtml}</span>
       ${albumArtHtml}
+      <span class="ticker__item-text">${titleHtml}</span>
+    `;
+  } else if (isStreamTitleItem(item)) {
+    const titleHtml = renderHighlights(formatStreamTitleValue(item.twitch_stream_title ?? ""));
+
+    contentClass = "ticker__item-content ticker__item-content--stream-title";
+    contentHtml = `
+      ${renderTwitchIconMarkup("ticker__twitch-icon")}
       <span class="ticker__item-text">${titleHtml}</span>
     `;
   } else {

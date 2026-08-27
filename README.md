@@ -30,6 +30,7 @@ Fill in your Supabase credentials:
 VITE_SUPABASE_URL=https://your-project.supabase.co
 VITE_SUPABASE_ANON_KEY=your-anon-key
 VITE_SPOTIFY_CLIENT_ID=your-spotify-client-id
+VITE_TWITCH_CLIENT_ID=your-twitch-client-id
 ```
 
 ### 3. Local development
@@ -49,6 +50,7 @@ Add these repository secrets (**Settings → Secrets and variables → Actions**
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY`
 - `VITE_SPOTIFY_CLIENT_ID` (for Spotify now-playing ticker)
+- `VITE_TWITCH_CLIENT_ID` (for Twitch stream title ticker)
 
 Push to `main` — GitHub Actions builds and deploys automatically.
 
@@ -76,9 +78,30 @@ Show the current Spotify track on your ticker while you stream.
 3. **Keep the admin tab open** during your stream — it polls Spotify every ~5 seconds and updates the overlay via Supabase Realtime.
 4. Play music in Spotify (desktop or mobile with active playback).
 
-README.md
+Display format: `*Now Playing:*` album art thumbnail + `**Track - Artist**`
 
 No Spotify Premium required for reading now playing. The Spotify API and Developer app are free.
+
+## Twitch stream title ticker (free)
+
+Show your current Twitch stream title on the ticker. Updates when you change the title in Twitch Creator Dashboard or before going live.
+
+### Setup
+
+1. Register an app in the [Twitch Developer Console](https://dev.twitch.tv/console/apps).
+2. Add OAuth redirect URIs (must match exactly — OAuth always uses `/admin.html`):
+   - `https://xthreetwo.github.io/admin.html`
+   - `http://localhost:5173/admin.html` (local dev)
+3. Copy the **Client ID** into `.env` as `VITE_TWITCH_CLIENT_ID` and into GitHub Actions secrets.
+4. Run migration [`007_twitch_stream_title.sql`](supabase/migrations/007_twitch_stream_title.sql) in Supabase SQL Editor (or include it with migrations 005–006 if setting up fresh).
+
+### Usage
+
+1. Admin → **Connect Twitch** and authorize with your broadcaster account.
+2. Click **Add Stream Title Item** and keep it **Active**.
+3. **Keep the admin tab open** during your stream — it polls Twitch every ~30 seconds and updates the overlay via Supabase Realtime.
+
+Display format: Twitch icon + `**Your title here**`
 
 ## OBS Setup
 

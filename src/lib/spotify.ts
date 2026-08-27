@@ -1,5 +1,6 @@
 const SPOTIFY_CLIENT_ID = import.meta.env.VITE_SPOTIFY_CLIENT_ID;
 const SPOTIFY_SCOPES = "user-read-currently-playing user-read-playback-state";
+const SPOTIFY_OAUTH_STATE = "spotify";
 const SPOTIFY_AUTH_URL = "https://accounts.spotify.com/authorize";
 const SPOTIFY_TOKEN_URL = "https://accounts.spotify.com/api/token";
 const SPOTIFY_API_BASE = "https://api.spotify.com/v1";
@@ -76,6 +77,7 @@ export async function startSpotifyAuth(): Promise<void> {
     response_type: "code",
     redirect_uri: getSpotifyRedirectUri(),
     scope: SPOTIFY_SCOPES,
+    state: SPOTIFY_OAUTH_STATE,
     code_challenge_method: "S256",
     code_challenge: challenge,
   });
@@ -170,8 +172,15 @@ export function isSpotifyTokenExpired(expiresAt: string): boolean {
   return new Date(expiresAt).getTime() <= Date.now() + 60_000;
 }
 
+export function isSpotifyOAuthCallback(): boolean {
+  const params = new URLSearchParams(window.location.search);
+  return params.get("state") === SPOTIFY_OAUTH_STATE && params.has("code");
+}
+
 export function parseSpotifyCallbackCode(): string | null {
   const params = new URLSearchParams(window.location.search);
+  if (params.get("state") !== SPOTIFY_OAUTH_STATE) return null;
+
   const code = params.get("code");
   const error = params.get("error");
 
