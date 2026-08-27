@@ -1,5 +1,7 @@
 import { renderHighlights } from "./parseHighlights";
 import {
+  formatMusicLabel,
+  formatMusicTitle,
   getItemDisplayText,
   getItemHoldMs,
   isMusicItem,
@@ -51,22 +53,34 @@ async function playItem(
 ): Promise<void> {
   if (!isActive(runId)) return;
 
-  const displayText = getItemDisplayText(item);
   const albumArtUrl = (item.music_album_art_url ?? "").trim();
-  const showAlbumArt = isMusicItem(item) && albumArtUrl;
-  const contentClass = showAlbumArt
-    ? "ticker__item-content ticker__item-content--music"
-    : "ticker__item-content";
-  const albumArtHtml = showAlbumArt
-    ? `<img class="ticker__album-art" src="${escapeAttr(albumArtUrl)}" alt="" />`
-    : "";
+  let contentHtml: string;
+  let contentClass = "ticker__item-content";
+
+  if (isMusicItem(item)) {
+    const labelHtml = renderHighlights(formatMusicLabel());
+    const titleHtml = renderHighlights(
+      formatMusicTitle(item.music_track ?? "", item.music_artist ?? "")
+    );
+    const albumArtHtml = albumArtUrl
+      ? `<img class="ticker__album-art" src="${escapeAttr(albumArtUrl)}" alt="" />`
+      : "";
+
+    contentClass = "ticker__item-content ticker__item-content--music";
+    contentHtml = `
+      <span class="ticker__item-text">${labelHtml}</span>
+      ${albumArtHtml}
+      <span class="ticker__item-text">${titleHtml}</span>
+    `;
+  } else {
+    contentHtml = `<span class="ticker__item-text">${renderHighlights(getItemDisplayText(item))}</span>`;
+  }
 
   stageEl.innerHTML = `
     <div class="ticker__item">
       <div class="ticker__item-track">
         <div class="${contentClass}">
-          ${albumArtHtml}
-          <span class="ticker__item-text">${renderHighlights(displayText)}</span>
+          ${contentHtml}
         </div>
       </div>
     </div>

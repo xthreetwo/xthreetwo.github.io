@@ -34,16 +34,24 @@ export function formatAcrallyText(stage: string, rank: string): string {
   return `*Current Stage:* ${stageLabel} **Current Rank:** ${rankDisplay}`;
 }
 
-export function formatMusicText(track: string, artist: string): string {
+export function formatMusicLabel(): string {
+  return "*Now Playing:*";
+}
+
+export function formatMusicTitle(track: string, artist: string): string {
   const trimmedTrack = track.trim();
   const trimmedArtist = artist.trim();
 
   if (!trimmedTrack && !trimmedArtist) {
-    return "*Now Playing:* —";
+    return "—";
   }
 
   const title = trimmedArtist ? `${trimmedTrack} - ${trimmedArtist}` : trimmedTrack;
-  return `*Now Playing:* **${title}**`;
+  return `**${title}**`;
+}
+
+export function formatMusicText(track: string, artist: string): string {
+  return `${formatMusicLabel()} ${formatMusicTitle(track, artist)}`;
 }
 
 export function getItemDisplayText(item: TickerItem): string {

@@ -76,7 +76,7 @@ Show the current Spotify track on your ticker while you stream.
 3. **Keep the admin tab open** during your stream — it polls Spotify every ~5 seconds and updates the overlay via Supabase Realtime.
 4. Play music in Spotify (desktop or mobile with active playback).
 
-Display format: album art thumbnail + `*Now Playing:* **Track - Artist**`
+README.md
 
 No Spotify Premium required for reading now playing. The Spotify API and Developer app are free.
 

@@ -6,7 +6,9 @@ import {
   formatAcrallyDisplayText,
   formatAcrallyText,
   formatHoldLabel,
+  formatMusicLabel,
   formatMusicText,
+  formatMusicTitle,
   getItemDisplayText,
   isAcrallyItem,
   isMusicItem,
@@ -337,11 +339,6 @@ async function updateMusicItemFields(
   const previewEl = document.getElementById(`text-${id}`);
   if (previewEl) {
     previewEl.innerHTML = renderMusicItemPreview(item);
-  }
-
-  const artEl = document.getElementById(`album-art-${id}`);
-  if (artEl) {
-    artEl.innerHTML = renderMusicAlbumArtMarkup(item);
   }
 
   return true;
@@ -903,7 +900,13 @@ function renderMusicAlbumArtMarkup(item: TickerItem): string {
 }
 
 function renderMusicItemPreview(item: TickerItem): string {
-  return renderHighlights(getItemDisplayText(item));
+  const labelHtml = renderHighlights(formatMusicLabel());
+  const titleHtml = renderHighlights(
+    formatMusicTitle(item.music_track ?? "", item.music_artist ?? "")
+  );
+  const artHtml = renderMusicAlbumArtMarkup(item);
+
+  return `${labelHtml}${artHtml}${titleHtml}`;
 }
 
 function renderMusicItemCard(item: TickerItem, index: number): string {
@@ -921,9 +924,8 @@ function renderMusicItemCard(item: TickerItem, index: number): string {
           <span class="badge badge--music">Now Playing</span>
         </div>
         <div class="item-card__preview item-card__preview--music">
-          <div class="item-card__music-preview-row">
-            <span id="album-art-${item.id}">${renderMusicAlbumArtMarkup(item)}</span>
-            <div class="ticker-preview-text" id="text-${item.id}">${renderMusicItemPreview(item)}</div>
+          <div class="item-card__music-preview-row ticker-preview-text" id="text-${item.id}">
+            ${renderMusicItemPreview(item)}
           </div>
         </div>
         <div class="item-card__meta item-card__meta--music">
