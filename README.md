@@ -88,7 +88,7 @@ Show your current Twitch stream title on the ticker. Updates when you change the
 
 ### Setup
 
-1. Register an app in the [Twitch Developer Console](https://dev.twitch.tv/console/apps). Set the client type to **Public** (required for browser-based auth without a client secret).
+1. Register an app in the [Twitch Developer Console](https://dev.twitch.tv/console/apps). For **Twitch alerts**, set the client type to **Confidential** (webhook EventSub requires a client secret on the server). Device activation still works from the admin UI — token exchange runs through a Supabase Edge Function.
 2. OAuth redirect URIs are not required for device activation, but you may add them if you use other flows later:
    - `https://xthreetwo.github.io/admin.html`
    - `http://localhost:5173/admin.html` (local dev)
@@ -112,14 +112,15 @@ Real-time Twitch alerts on the overlay via EventSub webhooks. The ticker pauses 
 1. Run migration [`009_twitch_alerts.sql`](supabase/migrations/009_twitch_alerts.sql) in Supabase SQL Editor.
 2. Deploy Edge Functions (Supabase CLI):
    ```bash
-   supabase functions deploy twitch-eventsub twitch-eventsub-register
+   supabase functions deploy twitch-eventsub twitch-eventsub-register twitch-oauth
    ```
 3. Set Edge Function secrets in **Supabase Dashboard → Edge Functions → Secrets**:
    - `TWITCH_CLIENT_ID` — same as your Vite env
+   - `TWITCH_CLIENT_SECRET` — from Twitch Developer Console (**Confidential** apps only; never put this in `.env` or GitHub Actions)
    - `TWITCH_EVENTSUB_SECRET` — random string you choose (also used when creating subscriptions)
-4. In [Twitch Developer Console](https://dev.twitch.tv/console/apps), ensure your app is **Public** and supports EventSub webhooks. The callback URL is:
+4. In [Twitch Developer Console](https://dev.twitch.tv/console/apps), use a **Confidential** app. EventSub webhook callback URL:
    `https://<your-project-ref>.supabase.co/functions/v1/twitch-eventsub`
-5. **Disconnect and reconnect Twitch** in admin after deploying (new OAuth scopes are required).
+5. **Disconnect and reconnect Twitch** in admin after deploying (new OAuth scopes + server-side token exchange).
 
 ### Usage
 

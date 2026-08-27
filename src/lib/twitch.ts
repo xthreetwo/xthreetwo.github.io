@@ -1,9 +1,39 @@
+import { supabase, supabaseAnonKey, supabaseUrl } from "./supabase";
+
 const TWITCH_CLIENT_ID = import.meta.env.VITE_TWITCH_CLIENT_ID;
 const TWITCH_DEVICE_URL = "https://id.twitch.tv/oauth2/device";
-const TWITCH_TOKEN_URL = "https://id.twitch.tv/oauth2/token";
 const TWITCH_VALIDATE_URL = "https://id.twitch.tv/oauth2/validate";
 const TWITCH_API_BASE = "https://api.twitch.tv/helix";
-const DEVICE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code";
+
+async function callTwitchOAuthEdge(
+  body: Record<string, string>
+): Promise<Record<string, unknown> | null> {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const accessToken = sessionData.session?.access_token;
+
+  if (!accessToken || !supabaseUrl || !supabaseAnonKey) {
+    return null;
+  }
+
+  const url = `${supabaseUrl.replace(/\/$/, "")}/functions/v1/twitch-oauth`;
+
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: supabaseAnonKey,
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify(body),
+    });
+
+    return res.json().catch(() => null);
+  } catch (error) {
+    console.error("Twitch OAuth edge call failed:", error);
+    return null;
+  }
+}
 
 export interface TwitchTokenResponse {
   access_token: string;
@@ -84,39 +114,40 @@ export async function pollTwitchDeviceToken(
     return { status: "error", message: "Twitch Client ID is not configured." };
   }
 
-  const body = new URLSearchParams({
-    client_id: TWITCH_CLIENT_ID,
-    scopes: twitchDeviceScopes(),
+  const edgeResult = await callTwitchOAuthEdge({
+    action: "device_poll",
     device_code: deviceCode,
-    grant_type: DEVICE_GRANT_TYPE,
   });
 
-  const res = await fetch(TWITCH_TOKEN_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body,
-  });
+  if (edgeResult) {
+    if (edgeResult.status === "success" && edgeResult.tokens) {
+      return {
+        status: "success",
+        tokens: edgeResult.tokens as TwitchTokenResponse,
+      };
+    }
 
-  if (res.ok) {
-    const tokens = (await res.json()) as TwitchTokenResponse;
-    return { status: "success", tokens };
+    if (edgeResult.status === "pending") {
+      return { status: "pending" };
+    }
+
+    if (edgeResult.status === "slow_down") {
+      return { status: "slow_down" };
+    }
+
+    const edgeMessage =
+      typeof edgeResult.message === "string"
+        ? edgeResult.message
+        : typeof edgeResult.error === "string"
+          ? edgeResult.error
+          : "Twitch authorization failed.";
+
+    return { status: "error", message: edgeMessage };
   }
 
-  const errorBody = await res.json().catch(() => null);
-  const errorMessage = typeof errorBody?.message === "string" ? errorBody.message : "";
-
-  if (errorMessage === "authorization_pending") {
-    return { status: "pending" };
-  }
-
-  if (errorMessage === "slow_down") {
-    return { status: "slow_down" };
-  }
-
-  console.error("Twitch device token poll failed:", res.status, errorBody);
   return {
     status: "error",
-    message: errorMessage || "Twitch authorization failed.",
+    message: "Could not reach twitch-oauth Edge Function. Deploy it and set TWITCH_CLIENT_SECRET.",
   };
 }
 
@@ -125,24 +156,17 @@ export async function refreshTwitchAccessToken(
 ): Promise<TwitchTokenResponse | null> {
   if (!TWITCH_CLIENT_ID) return null;
 
-  const body = new URLSearchParams({
-    client_id: TWITCH_CLIENT_ID,
-    grant_type: "refresh_token",
+  const edgeResult = await callTwitchOAuthEdge({
+    action: "refresh",
     refresh_token: refreshToken,
   });
 
-  const res = await fetch(TWITCH_TOKEN_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body,
-  });
-
-  if (!res.ok) {
-    console.error("Twitch token refresh failed:", res.status, await res.text());
-    return null;
+  if (edgeResult?.ok && edgeResult.tokens) {
+    return edgeResult.tokens as TwitchTokenResponse;
   }
 
-  return res.json();
+  console.error("Twitch token refresh failed:", edgeResult?.error ?? "edge call failed");
+  return null;
 }
 
 export async function validateTwitchToken(accessToken: string): Promise<TwitchValidateResponse | null> {

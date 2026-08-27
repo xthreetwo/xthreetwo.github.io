@@ -1,86 +1,18 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { EVENTSUB_SUBSCRIPTIONS } from "../_shared/twitchAlerts.ts";
 import { handleCors, jsonWithCors } from "../_shared/cors.ts";
+import { getAppAccessToken, hasTwitchClientSecret, twitchClientId } from "../_shared/twitchOAuth.ts";
 
 const TWITCH_CLIENT_ID = Deno.env.get("TWITCH_CLIENT_ID") ?? "";
 const TWITCH_EVENTSUB_SECRET = Deno.env.get("TWITCH_EVENTSUB_SECRET") ?? "";
-const TWITCH_TOKEN_URL = "https://id.twitch.tv/oauth2/token";
 const TWITCH_API_BASE = "https://api.twitch.tv/helix";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 
-interface TwitchTokenRow {
-  user_id: string;
-  broadcaster_id: string;
-  access_token: string;
-  refresh_token: string;
-  expires_at: string;
-}
-
 interface SubscriptionFailure {
   type: string;
   message: string;
-}
-
-async function refreshAccessToken(refreshToken: string): Promise<{
-  access_token: string;
-  refresh_token?: string;
-  expires_in: number;
-} | null> {
-  const body = new URLSearchParams({
-    client_id: TWITCH_CLIENT_ID,
-    grant_type: "refresh_token",
-    refresh_token: refreshToken,
-  });
-
-  const res = await fetch(TWITCH_TOKEN_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body,
-  });
-
-  if (!res.ok) {
-    console.error("Token refresh failed:", await res.text());
-    return null;
-  }
-
-  return res.json();
-}
-
-function isExpired(expiresAt: string): boolean {
-  return new Date(expiresAt).getTime() <= Date.now() + 60_000;
-}
-
-async function ensureAccessToken(
-  supabase: ReturnType<typeof createClient>,
-  row: TwitchTokenRow
-): Promise<string | null> {
-  if (!isExpired(row.expires_at)) {
-    return row.access_token;
-  }
-
-  const refreshed = await refreshAccessToken(row.refresh_token);
-  if (!refreshed) return null;
-
-  const expiresAt = new Date(Date.now() + refreshed.expires_in * 1000).toISOString();
-  const refreshToken = refreshed.refresh_token ?? row.refresh_token;
-
-  const { error } = await supabase
-    .from("twitch_tokens")
-    .update({
-      access_token: refreshed.access_token,
-      refresh_token: refreshToken,
-      expires_at: expiresAt,
-    })
-    .eq("user_id", row.user_id);
-
-  if (error) {
-    console.error("Failed to save refreshed token:", error.message);
-    return null;
-  }
-
-  return refreshed.access_token;
 }
 
 async function listSubscriptions(accessToken: string): Promise<Array<{ id: string }>> {
@@ -168,8 +100,15 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: "Method not allowed" }, 405);
   }
 
-  if (!TWITCH_CLIENT_ID) {
+  if (!twitchClientId()) {
     return jsonResponse({ error: "TWITCH_CLIENT_ID secret is not set in Edge Functions" }, 500);
+  }
+
+  if (!hasTwitchClientSecret()) {
+    return jsonResponse({
+      error:
+        "TWITCH_CLIENT_SECRET is not set. Webhook EventSub requires a Confidential Twitch app — add the client secret to Edge Function secrets.",
+    }, 500);
   }
 
   if (!TWITCH_EVENTSUB_SECRET) {
@@ -195,25 +134,27 @@ Deno.serve(async (req) => {
 
   const { data: tokenRow, error: tokenError } = await serviceClient
     .from("twitch_tokens")
-    .select("user_id, broadcaster_id, access_token, refresh_token, expires_at")
+    .select("user_id, broadcaster_id, scopes")
     .eq("user_id", userId)
     .maybeSingle();
 
   if (tokenError || !tokenRow) {
-    return jsonResponse({ error: "Twitch not connected" }, 400);
+    return jsonResponse({ error: "Twitch not connected — connect Twitch first" }, 400);
   }
 
-  const accessToken = await ensureAccessToken(serviceClient, tokenRow as TwitchTokenRow);
-  if (!accessToken) {
-    return jsonResponse({ error: "Twitch token refresh failed — disconnect and reconnect Twitch" }, 400);
+  const appAccessToken = await getAppAccessToken();
+  if (!appAccessToken) {
+    return jsonResponse({
+      error: "Failed to get Twitch app access token — check TWITCH_CLIENT_ID and TWITCH_CLIENT_SECRET",
+    }, 500);
   }
 
   const callbackUrl = `${SUPABASE_URL}/functions/v1/twitch-eventsub`;
   const broadcasterId = tokenRow.broadcaster_id as string;
 
-  const existing = await listSubscriptions(accessToken);
+  const existing = await listSubscriptions(appAccessToken);
   for (const sub of existing) {
-    await deleteSubscription(accessToken, sub.id);
+    await deleteSubscription(appAccessToken, sub.id);
   }
 
   await serviceClient.from("twitch_event_subscriptions").delete().eq("user_id", userId);
@@ -225,7 +166,7 @@ Deno.serve(async (req) => {
   for (const sub of EVENTSUB_SUBSCRIPTIONS) {
     const condition = sub.buildCondition(broadcasterId);
     const result = await createSubscription(
-      accessToken,
+      appAccessToken,
       callbackUrl,
       sub.type,
       sub.version,
