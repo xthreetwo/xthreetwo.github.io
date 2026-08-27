@@ -940,7 +940,7 @@ a.btn:active {
 
 .item-card__acrally-quick {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 0.75rem;
   margin-top: 0.75rem;
   padding: 0.75rem;
@@ -978,7 +978,11 @@ a.btn:active {
 
 .acrally-stage-select,
 .acrally-rank-input {
+  display: block;
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   padding: 0.45rem 0.55rem;
   background: var(--admin-bg);
   border: 1px solid var(--admin-border);
@@ -993,10 +997,6 @@ a.btn:active {
 .acrally-rank-input:focus {
   outline: none;
   border-color: var(--acrally-accent);
-}
-
-.acrally-rank-input {
-  max-width: 100%;
 }
 
 .acrally-field--saved {
