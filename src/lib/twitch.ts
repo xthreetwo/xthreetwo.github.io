@@ -1,5 +1,4 @@
 const TWITCH_CLIENT_ID = import.meta.env.VITE_TWITCH_CLIENT_ID;
-const TWITCH_SCOPES = "channel:read";
 const TWITCH_AUTH_URL = "https://id.twitch.tv/oauth2/authorize";
 const TWITCH_TOKEN_URL = "https://id.twitch.tv/oauth2/token";
 const TWITCH_VALIDATE_URL = "https://id.twitch.tv/oauth2/validate";
@@ -65,7 +64,6 @@ export async function startTwitchAuth(): Promise<void> {
     client_id: TWITCH_CLIENT_ID,
     response_type: "code",
     redirect_uri: getTwitchRedirectUri(),
-    scope: TWITCH_SCOPES,
     state: OAUTH_STATE,
     code_challenge_method: "S256",
     code_challenge: challenge,
