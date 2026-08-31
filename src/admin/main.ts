@@ -1,5 +1,8 @@
 import "./admin.css";
+import "../overlay/overlay.css";
+import "./ticker-preview.css";
 import { supabase } from "../lib/supabase";
+import { createTickerPlayer, type TickerPlayerControls } from "../lib/tickerPlayer";
 import { renderHighlights } from "../lib/parseHighlights";
 import type { TickerItem } from "../shared/types";
 import {
@@ -112,6 +115,7 @@ const app = document.getElementById("app")!;
 
 let session: Session | null = null;
 let items: TickerItem[] = [];
+let tickerPreviewPlayer: TickerPlayerControls | null = null;
 let showAddForm = false;
 let showAddAcrallyForm = false;
 let draggedId: string | null = null;
@@ -127,6 +131,7 @@ let tickerAccentColor = DEFAULT_TICKER_ACCENT;
 let showSettingsModal = false;
 let showAlertsPanel = false;
 let showAlertsTestPanel = false;
+let showTickerPreview = false;
 let alertSettingsDraft: TickerAlertSettingsRow[] = [];
 let alertSettingsSaved: TickerAlertSettingsRow[] = [];
 let eventSubCount = 0;
@@ -165,6 +170,7 @@ async function init(): Promise<void> {
 }
 
 function renderLogin(): void {
+  stopTickerPreview();
   app.innerHTML = `
     <div class="auth-card">
       <h1>Ticker Admin</h1>
@@ -1121,8 +1127,76 @@ function renderStageSelect(id: string, selected?: string): string {
   return `<select id="${id}" class="stage-select">${renderStageOptionsMarkup(selected)}</select>`;
 }
 
+function getActiveTickerItems(): TickerItem[] {
+  return items.filter((item) => item.active);
+}
+
+function stopTickerPreview(): void {
+  tickerPreviewPlayer?.stop();
+  tickerPreviewPlayer = null;
+}
+
+function initTickerPreview(): void {
+  stopTickerPreview();
+
+  const stageEl = document.getElementById("admin-ticker-stage");
+  if (!stageEl) return;
+
+  tickerPreviewPlayer = createTickerPlayer(
+    stageEl,
+    getActiveTickerItems,
+    "No active ticker items"
+  );
+  tickerPreviewPlayer.refresh();
+}
+
+function renderTickerPreviewMarkup(): string {
+  if (!showTickerPreview) return "";
+
+  return `
+    <section class="ticker-preview-section" aria-label="Ticker preview">
+      <div class="ticker-preview-host">
+        <div class="ticker" id="admin-ticker-root" role="marquee" aria-live="polite">
+          <div class="ticker__edge ticker__edge--left" aria-hidden="true"></div>
+          <div class="ticker__center">
+            <div class="ticker__brand">
+              <div class="ticker__brand-inner">
+                <span class="ticker__brand-label">SuhhhCuh</span>
+                <img
+                  class="ticker__eyes"
+                  src="/assets/eyes/scalable-eyes.png"
+                  alt=""
+                  width="118"
+                  height="41"
+                />
+              </div>
+            </div>
+            <div class="ticker__viewport">
+              <div class="ticker__stage" id="admin-ticker-stage" aria-live="polite"></div>
+            </div>
+          </div>
+          <div class="ticker__edge ticker__edge--right" aria-hidden="true"></div>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function renderPreviewToggleButton(): string {
+  return `
+    <button
+      type="button"
+      id="preview-toggle-btn"
+      class="btn btn--secondary${showTickerPreview ? " btn--preview-active" : ""}"
+      aria-pressed="${showTickerPreview ? "true" : "false"}"
+    >
+      Preview Overlay
+    </button>
+  `;
+}
+
 function renderSectionHeaderActions(): string {
-  const previewBtn = `<a href="/overlay.html" target="_blank" rel="noopener noreferrer" class="btn btn--secondary">Preview Overlay</a>`;
+  const previewBtn = renderPreviewToggleButton();
 
   if (showAddForm || showAddAcrallyForm) {
     return `<div class="section-header__actions">${previewBtn}</div>`;
@@ -1788,8 +1862,11 @@ function bindSettingsModal(): void {
 function renderDashboard(): void {
   stopSpotifyPoller();
   stopTwitchPoller();
+  stopTickerPreview();
 
   app.innerHTML = `
+    ${renderTickerPreviewMarkup()}
+
     <header class="admin-header">
       <h1>Ticker Admin</h1>
       <div class="admin-header__actions">
@@ -1886,6 +1963,11 @@ function renderDashboard(): void {
   `;
 
   document.getElementById("logout-btn")!.addEventListener("click", handleLogout);
+
+  document.getElementById("preview-toggle-btn")?.addEventListener("click", () => {
+    showTickerPreview = !showTickerPreview;
+    renderDashboard();
+  });
 
   document.getElementById("settings-btn")?.addEventListener("click", () => {
     showSettingsModal = true;
@@ -2025,6 +2107,9 @@ function renderDashboard(): void {
   bindDragReorder();
   startSpotifyPoller();
   startTwitchPoller();
+  if (showTickerPreview) {
+    initTickerPreview();
+  }
 }
 
 function renderItemCard(item: TickerItem, index: number): string {

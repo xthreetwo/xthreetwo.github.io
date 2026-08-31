@@ -1,0 +1,48 @@
+/* Restore admin page chrome after overlay.css */
+html,
+body {
+  overflow: auto;
+  background: var(--admin-bg);
+  height: auto;
+  width: 100%;
+}
+
+body {
+  font-family: var(--admin-font);
+}
+
+#app {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 2rem 1.5rem;
+  width: auto;
+  height: auto;
+  position: static;
+}
+
+.btn--preview-active {
+  background: color-mix(in srgb, var(--ticker-accent) 18%, var(--admin-surface));
+  border-color: var(--ticker-accent);
+  color: var(--admin-text);
+}
+
+.ticker-preview-section {
+  width: 100vw;
+  max-width: 100vw;
+  margin: -2rem calc(50% - 50vw) 1.75rem;
+  overflow: hidden;
+  background: transparent;
+}
+
+.ticker-preview-host {
+  background: transparent;
+}
+
+.ticker-preview-host .ticker {
+  position: relative;
+  top: auto;
+  left: auto;
+  right: auto;
+  width: 100%;
+  height: var(--ticker-height);
+}

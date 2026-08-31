@@ -6,14 +6,21 @@
   --ticker-accent: #ff5b20;
   --ticker-transition: 1s;
   --ticker-hold: 5s;
-  --ticker-height: 65px;
+  --ticker-height: 48px;
   --ticker-max-width: 1920px;
   --ticker-font: "IBM Plex Mono", ui-monospace, monospace;
   --ticker-brand-font: "Instrument Serif", Georgia, serif;
-  --ticker-item-size: 30px;
-  --ticker-brand-size: 45px;
-  --ticker-item-padding-left: 28px;
-  --ticker-item-padding-right: 10px;
+  --ticker-item-size: 22px;
+  --ticker-brand-size: 33px;
+  --ticker-item-padding-left: 21px;
+  --ticker-item-padding-right: 7px;
+  --ticker-brand-padding-block: 4px;
+  --ticker-brand-padding-inline: 21px;
+  --ticker-brand-gap: 7px;
+  --ticker-eyes-height: 30px;
+  --ticker-album-art-size: calc(var(--ticker-height) - 10px);
+  --ticker-icon-size: 16px;
+  --ticker-inline-gap: 9px;
 }
 
 *,
@@ -84,7 +91,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 5px 28px;
+  padding: var(--ticker-brand-padding-block) var(--ticker-brand-padding-inline);
   position: relative;
   z-index: 2;
 }
@@ -92,7 +99,7 @@ body {
 .ticker__brand-inner {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--ticker-brand-gap);
 }
 
 .ticker__brand-label {
@@ -108,7 +115,7 @@ body {
 /* SuhhhCuh eyes graphic */
 .ticker__eyes {
   flex-shrink: 0;
-  height: 41px;
+  height: var(--ticker-eyes-height);
   width: auto;
   display: block;
 }
@@ -219,29 +226,29 @@ body {
 .ticker__item-content--music {
   display: inline-flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--ticker-inline-gap);
   line-height: normal;
 }
 
 .ticker__item-content--stream-title {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--ticker-brand-gap);
   line-height: normal;
 }
 
 .ticker__twitch-icon {
   flex-shrink: 0;
-  width: 22px;
-  height: 22px;
+  width: var(--ticker-icon-size);
+  height: var(--ticker-icon-size);
   color: #9146ff;
   display: block;
 }
 
 .ticker__album-art {
   flex-shrink: 0;
-  width: 48px;
-  height: 48px;
+  width: var(--ticker-album-art-size);
+  height: var(--ticker-album-art-size);
   object-fit: cover;
   border-radius: 4px;
   display: block;

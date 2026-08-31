@@ -5,11 +5,11 @@
   --ticker-brand-text: #fffaee;
   --ticker-text: #191919;
   --ticker-accent: #ff5b20;
-  --ticker-height: 65px;
+  --ticker-height: 48px;
   --ticker-font: "IBM Plex Mono", ui-monospace, monospace;
   --ticker-brand-font: "Instrument Serif", Georgia, serif;
-  --ticker-item-size: 30px;
-  --ticker-brand-size: 45px;
+  --ticker-item-size: 22px;
+  --ticker-brand-size: 33px;
 
   /* Admin chrome */
   --admin-bg: #121212;
